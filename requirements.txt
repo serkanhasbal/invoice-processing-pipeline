@@ -1,0 +1,6 @@
+# CDK infrastructure dependencies
+# These are installed on YOUR LAPTOP (not in Lambda).
+# Run: pip install -r requirements.txt
+
+aws-cdk-lib==2.160.0
+constructs>=10.0.0,<11.0.0

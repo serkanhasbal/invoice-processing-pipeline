@@ -1,0 +1,21 @@
+{
+  "bedrock_model_id": "amazon.nova-pro-v1:0",
+
+  "temperature": 0.1,
+
+  "max_tokens": 4096,
+
+  "prompt_version": "v2",
+
+  "output_format": "json",
+
+  "feature_flags": {
+    "strict_validation": true,
+    "log_raw_bedrock_response": false
+  },
+
+  "business_thresholds": {
+    "high_value_invoice_amount": 10000,
+    "overdue_warning_days": 30
+  }
+}

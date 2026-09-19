@@ -1,0 +1,24 @@
+# Lambda runtime dependencies
+# These are installed INSIDE the Lambda deployment package, not on your laptop.
+#
+# CDK automatically installs these when you run `cdk deploy` by running
+# `pip install -r requirements.txt` inside the lambda/invoice_processor/ directory
+# and bundling the result into the Lambda zip.
+#
+# boto3 is already provided by the Lambda runtime environment (AWS pre-installs it),
+# so we only need to list packages that are NOT part of the standard runtime.
+#
+# For Phase 1 our Lambda only uses:
+#   - boto3    (pre-installed by AWS, no need to list)
+#   - json     (Python standard library)
+#   - re       (Python standard library)
+#   - logging  (Python standard library)
+#   - os       (Python standard library)
+#   - base64   (Python standard library)
+#   - datetime (Python standard library)
+#
+# No third-party packages are needed yet.
+# Phase 2 may add packages if we need PDF text extraction or schema validation.
+#
+# Keeping this file present (even if empty of packages) is important:
+# CDK uses its existence to know this is a Python Lambda with dependencies to bundle.

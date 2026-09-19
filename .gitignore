@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# CDK
+cdk.out/
+.cdk.staging/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Lambda build artifacts
+lambda/invoice_processor/__pycache__/
