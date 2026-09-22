@@ -143,6 +143,10 @@ class AnalyticsStack(Stack):
                         glue.CfnTable.ColumnProperty(name="invoice_number",     type="string", comment="Vendor invoice reference number"),
                         glue.CfnTable.ColumnProperty(name="invoice_date",       type="date",   comment="Date invoice was issued (YYYY-MM-DD)"),
                         glue.CfnTable.ColumnProperty(name="period",             type="string", comment="Billing period in YYYY-MM format (e.g. 2024-09)"),
+                        # ── Location fields ──────────────────────────────────
+                        glue.CfnTable.ColumnProperty(name="city",               type="string", comment="City where the data centre is located"),
+                        glue.CfnTable.ColumnProperty(name="country",            type="string", comment="Country where the data centre is located"),
+                        glue.CfnTable.ColumnProperty(name="country_code",       type="string", comment="2-letter ISO country code e.g. FR GB DE CH NL"),
                         # ── Monetary fields ──────────────────────────────────
                         glue.CfnTable.ColumnProperty(name="currency",           type="string", comment="3-letter ISO currency code e.g. USD EUR GBP CHF"),
                         glue.CfnTable.ColumnProperty(name="total_amount",       type="double", comment="Total amount due in local currency including tax"),

@@ -304,6 +304,24 @@ Look for: PUE Cap, Maximum PUE, PUE Limit, Contracted PUE.
 Return as a decimal number (e.g. 1.5).
 Return null if not present.
 
+**city**
+The city where the data centre issuing this invoice is located.
+Look at the vendor's address in the letterhead or document header.
+Return the city name in English (e.g. "Paris", "London", "Frankfurt", "Zurich", "Amsterdam").
+Return null if no address is present.
+
+**country**
+The country where the data centre is located, in English.
+Infer from the vendor's address or the document language/VAT number.
+Examples: "France", "United Kingdom", "Germany", "Switzerland", "Netherlands".
+Return null if cannot be determined.
+
+**country_code**
+The 2-letter ISO 3166-1 alpha-2 country code.
+Examples: FR, GB, DE, CH, NL, US, SG, JP.
+Infer from the country field.
+Return null if cannot be determined.
+
 ## Consistency check
 Before returning, verify:
 - total_volume_kwh × base_rate × current_pue ≈ net energy charge (allow rounding)
@@ -322,7 +340,10 @@ Before returning, verify:
   "total_volume_kwh": number or null,
   "base_rate": number or null,
   "current_pue": number or null,
-  "pue_cap": number or null
+  "pue_cap": number or null,
+  "city": "string or null",
+  "country": "string or null",
+  "country_code": "2-letter ISO code or null"
 }"""
 }
 

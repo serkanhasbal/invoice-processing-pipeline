@@ -58,6 +58,9 @@ _FIELD_DEFAULTS: dict[str, Any] = {
     "base_rate":         None,
     "current_pue":       None,
     "pue_cap":           None,
+    "city":              None,
+    "country":           None,
+    "country_code":      None,
     "usd_rate":          None,
     "total_amount_usd":  None,
 }
@@ -248,11 +251,15 @@ def _normalise_all_fields(data: dict, warnings: list[str]) -> tuple[dict, list[s
         warnings.append(warn)
 
     # String fields
-    for field in ("vendor", "invoice_number", "currency"):
+    for field in ("vendor", "invoice_number", "currency", "city", "country", "country_code"):
         raw = data.get(field)
         if raw is not None:
             cleaned = str(raw).strip()
             data[field] = cleaned if cleaned else None
+
+    # country_code → uppercase 2-letter
+    if data.get("country_code"):
+        data["country_code"] = data["country_code"].upper()[:2]
 
     # Currency → uppercase
     if data.get("currency"):
