@@ -5,7 +5,7 @@
 
   "max_tokens": 4096,
 
-  "prompt_version": "v2",
+  "prompt_version": "v3",
 
   "output_format": "json",
 
@@ -14,8 +14,25 @@
     "log_raw_bedrock_response": false
   },
 
+  "usd_exchange_rates": {
+    "_comment": "Rates are manually maintained. Update periodically. All rates are X per 1 USD (i.e. how many units of currency equal 1 USD).",
+    "_example": "EUR 0.92 means 1 USD = 0.92 EUR, so to convert EUR to USD divide by 0.92",
+    "USD": 1.00,
+    "EUR": 0.92,
+    "GBP": 0.79,
+    "CHF": 0.88,
+    "JPY": 149.50,
+    "CAD": 1.36,
+    "AUD": 1.53,
+    "SGD": 1.34,
+    "HKD": 7.82,
+    "SEK": 10.42,
+    "NOK": 10.55,
+    "DKK": 6.89
+  },
+
   "business_thresholds": {
-    "high_value_invoice_amount": 10000,
-    "overdue_warning_days": 30
+    "high_value_invoice_usd": 50000,
+    "pue_warning_threshold": 1.5
   }
 }

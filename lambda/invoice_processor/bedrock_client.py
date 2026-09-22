@@ -216,6 +216,113 @@ Before returning, verify:
       "line_total": number
     }
   ]
+}""",
+
+    # v3: Energy/colocation invoice schema.
+    #
+    # Key differences from v2:
+    #   - invoice_number extracted separately from invoice_id (vendor reference)
+    #   - period field: billing period in YYYY-MM format
+    #   - total_volume_kwh: electricity consumption in kWh
+    #   - base_rate: cost per kWh in local currency
+    #   - current_pue: actual Power Usage Effectiveness for the billing period
+    #   - pue_cap: contractual PUE cap/limit
+    #   - Removed: purchase_order_number, payment_status, line_items (not
+    #     relevant for energy invoices; these are metered utility bills)
+    #   - Kept: currency, tax_amount (still needed for analytics)
+
+    "v3": """You are an expert data extraction system specialised in energy and data centre invoices (electricity, power, colocation utility bills).
+
+## Output format
+
+Return ONLY a single valid JSON object. No markdown, no code fences, no explanations.
+
+## Field extraction rules
+
+**vendor**
+The company issuing this invoice (the energy/colocation provider).
+Look in the letterhead, "From:", "Supplier:", or top of the document.
+Use the full legal company name.
+
+**invoice_number**
+The unique invoice reference issued by the vendor.
+Look for: Invoice No, Invoice #, Invoice Number, Ref, Reference, Rechnungsnummer, Facture N°.
+Return as a string exactly as printed (e.g. "372220000015").
+
+**invoice_date**
+The date this invoice was issued.
+Look for: Invoice Date, Date, Billing Date, Issued.
+Return in YYYY-MM-DD format. Convert from any format (e.g. "25 Nov 2024" → "2024-11-25").
+
+**period**
+The billing period this invoice covers.
+Look for: Billing Period, Period, Service Period, Month, For the period of.
+Return in YYYY-MM format (e.g. "2024-09" for September 2024).
+If a date range is given (e.g. "01 Sep 2024 – 30 Sep 2024"), use the month of the start date.
+
+**currency**
+The 3-letter ISO currency code.
+Infer from symbols: € → EUR, $ → USD, £ → GBP, Fr/CHF → CHF.
+Infer from country if no symbol is shown.
+Return null only if genuinely ambiguous.
+
+**total_amount**
+The total amount due on this invoice including all taxes and fees.
+Look for: Total, Total Due, Amount Due, Grand Total, Gesamtbetrag, Total TTC.
+Return as a plain decimal number. Strip currency symbols and thousand separators.
+Handle European notation: "1.250,00" → 1250.00.
+Never return a negative value.
+
+**tax_amount**
+Total tax charged on this invoice.
+Look for: VAT, Tax, MwSt, TVA, GST, Sales Tax.
+Return 0.0 if no tax is shown but total and a net amount are both present.
+Return null if tax information is completely absent.
+
+**total_volume_kwh**
+Total electricity consumption in kilowatt-hours (kWh) billed in this invoice.
+Look for: kWh, Energy, Consumption, Usage, Volume, Verbrauch.
+This may appear in a usage table or as a single line item.
+Return as a plain decimal number. Return null if not present.
+
+**base_rate**
+The base energy rate charged per kWh in the invoice currency.
+Look for: Rate, Unit Rate, Price per kWh, $/kWh, €/kWh, Tariff.
+Return as a plain decimal number (e.g. 0.09175 for $0.09175/kWh).
+Return null if not present.
+
+**current_pue**
+The actual Power Usage Effectiveness (PUE) value for this billing period.
+PUE = Total facility power / IT equipment power. Typical values: 1.0 to 2.0.
+Look for: PUE, Power Usage Effectiveness, Actual PUE, Measured PUE.
+Return as a decimal number (e.g. 1.302).
+Return null if not present.
+
+**pue_cap**
+The contractual maximum PUE allowed under the service agreement.
+Look for: PUE Cap, Maximum PUE, PUE Limit, Contracted PUE.
+Return as a decimal number (e.g. 1.5).
+Return null if not present.
+
+## Consistency check
+Before returning, verify:
+- total_volume_kwh × base_rate × current_pue ≈ net energy charge (allow rounding)
+- total_amount ≥ tax_amount
+- period month is consistent with invoice_date month
+
+## Return exactly this JSON structure
+{
+  "vendor": "string or null",
+  "invoice_number": "string or null",
+  "invoice_date": "YYYY-MM-DD or null",
+  "period": "YYYY-MM or null",
+  "currency": "3-letter ISO code or null",
+  "total_amount": number or null,
+  "tax_amount": number or null,
+  "total_volume_kwh": number or null,
+  "base_rate": number or null,
+  "current_pue": number or null,
+  "pue_cap": number or null
 }"""
 }
 

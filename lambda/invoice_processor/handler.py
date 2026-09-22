@@ -63,7 +63,7 @@ _s3 = boto3.client("s3")
 
 # Pipeline version tag — increment when making breaking changes to the
 # output format so you can filter records by version in Athena.
-_PIPELINE_VERSION = "2.0"
+_PIPELINE_VERSION = "3.0"
 
 
 def lambda_handler(event: dict, context) -> dict:
@@ -165,7 +165,9 @@ def _process_single_record(record: dict, config: dict) -> dict:
 
         # ── Step 3: Parse and validate ──────────────────────────────────────
         t = time.monotonic()
-        invoice_data = invoice_parser.parse_and_validate(raw_bedrock_response)
+        # Pass config so invoice_parser can apply USD conversion from
+        # the usd_exchange_rates table in AppConfig.
+        invoice_data = invoice_parser.parse_and_validate(raw_bedrock_response, config)
         logger.info("Parse + validate: %.0f ms", (time.monotonic() - t) * 1000)
 
         # ── Step 4: Add pipeline metadata ───────────────────────────────────
@@ -182,12 +184,15 @@ def _process_single_record(record: dict, config: dict) -> dict:
         logger.info("S3 write: %.0f ms → s3://%s/%s", (time.monotonic() - t) * 1000, bucket, output_key)
 
         logger.info(
-            "✓ Done in %d ms | invoice_id=%s vendor=%s total=%s %s warnings=%d",
+            "✓ Done in %d ms | invoice_number=%s vendor=%s "
+            "total=%s %s usd=%s period=%s warnings=%d",
             total_ms,
-            invoice_data.get("invoice_id"),
-            invoice_data.get("vendor_name"),
+            invoice_data.get("invoice_number"),
+            invoice_data.get("vendor"),
             invoice_data.get("total_amount"),
             invoice_data.get("currency", ""),
+            invoice_data.get("total_amount_usd"),
+            invoice_data.get("period"),
             len(invoice_data.get("data_quality_warnings", [])),
         )
 
@@ -282,14 +287,11 @@ def _write_processed_invoice(bucket: str, invoice_data: dict) -> str:
     """
     processed_prefix = os.environ.get("PROCESSED_PREFIX", "processed/invoices/")
 
-    invoice_id = invoice_data.get("invoice_id")
+    invoice_id = invoice_data.get("invoice_number") or invoice_data.get("invoice_id")
     if invoice_id:
-        # Sanitise the invoice_id for use as a filename.
-        # Replace slashes, spaces, and other unsafe characters.
         safe_id = invoice_id.replace("/", "-").replace(" ", "_")
         filename = f"{safe_id}.json"
     else:
-        # Fallback: use a timestamp so we never lose data.
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         filename = f"unknown_{timestamp}.json"
 

@@ -135,30 +135,32 @@ class AnalyticsStack(Stack):
                         serialization_library="org.openx.data.jsonserde.JsonSerDe",
                         parameters={"serialization.format": "1"},
                     ),
-                    # Column definitions -- these map directly to the JSON keys
-                    # that Lambda writes into processed/invoices/*.json
+                    # Column definitions — map directly to JSON keys written by Lambda.
+                    # Energy invoice schema v3.
                     columns=[
-                        glue.CfnTable.ColumnProperty(name="invoice_id",           type="string",  comment="Unique invoice identifier"),
-                        glue.CfnTable.ColumnProperty(name="vendor_name",          type="string",  comment="Name of the vendor or supplier"),
-                        glue.CfnTable.ColumnProperty(name="invoice_date",         type="date",    comment="Date the invoice was issued"),
-                        glue.CfnTable.ColumnProperty(name="due_date",             type="date",    comment="Payment due date"),
-                        glue.CfnTable.ColumnProperty(name="currency",             type="string",  comment="Invoice currency code e.g. USD EUR GBP"),
-                        glue.CfnTable.ColumnProperty(name="subtotal",             type="double",  comment="Invoice subtotal before tax"),
-                        glue.CfnTable.ColumnProperty(name="tax_amount",           type="double",  comment="Tax amount"),
-                        glue.CfnTable.ColumnProperty(name="total_amount",         type="double",  comment="Total invoice amount including tax"),
-                        glue.CfnTable.ColumnProperty(name="payment_status",       type="string",  comment="e.g. PAID UNPAID OVERDUE"),
-                        glue.CfnTable.ColumnProperty(name="purchase_order_number",type="string",  comment="PO number if present"),
-                        glue.CfnTable.ColumnProperty(
-                            name="line_items",
-                            type="array<struct<description:string,quantity:double,unit_price:double,line_total:double>>",
-                            comment="Individual line items on the invoice",
-                        ),
-                        glue.CfnTable.ColumnProperty(name="processed_at",             type="string",  comment="ISO timestamp when Lambda processed this invoice"),
-                        glue.CfnTable.ColumnProperty(name="source_file",              type="string",  comment="Original S3 key of the raw invoice"),
-                        glue.CfnTable.ColumnProperty(name="pipeline_version",         type="string",  comment="Pipeline version that produced this record e.g. 2.0"),
-                        glue.CfnTable.ColumnProperty(name="processing_duration_ms",   type="int",     comment="Total Lambda processing time in milliseconds"),
-                        glue.CfnTable.ColumnProperty(name="bedrock_model_used",       type="string",  comment="Bedrock model ID used for extraction"),
-                        glue.CfnTable.ColumnProperty(name="data_quality_warnings",    type="array<string>", comment="List of non-critical data issues detected during parsing"),
+                        # ── Core invoice fields ──────────────────────────────
+                        glue.CfnTable.ColumnProperty(name="vendor",             type="string", comment="Company issuing the invoice (energy/colocation provider)"),
+                        glue.CfnTable.ColumnProperty(name="invoice_number",     type="string", comment="Vendor invoice reference number"),
+                        glue.CfnTable.ColumnProperty(name="invoice_date",       type="date",   comment="Date invoice was issued (YYYY-MM-DD)"),
+                        glue.CfnTable.ColumnProperty(name="period",             type="string", comment="Billing period in YYYY-MM format (e.g. 2024-09)"),
+                        # ── Monetary fields ──────────────────────────────────
+                        glue.CfnTable.ColumnProperty(name="currency",           type="string", comment="3-letter ISO currency code e.g. USD EUR GBP CHF"),
+                        glue.CfnTable.ColumnProperty(name="total_amount",       type="double", comment="Total amount due in local currency including tax"),
+                        glue.CfnTable.ColumnProperty(name="tax_amount",         type="double", comment="Tax portion of total_amount in local currency"),
+                        glue.CfnTable.ColumnProperty(name="usd_rate",           type="double", comment="Exchange rate used: local currency units per 1 USD"),
+                        glue.CfnTable.ColumnProperty(name="total_amount_usd",   type="double", comment="total_amount converted to USD using usd_rate"),
+                        # ── Energy-specific fields ───────────────────────────
+                        glue.CfnTable.ColumnProperty(name="total_volume_kwh",   type="double", comment="Total electricity consumption in kWh for the billing period"),
+                        glue.CfnTable.ColumnProperty(name="base_rate",          type="double", comment="Energy rate per kWh in local currency"),
+                        glue.CfnTable.ColumnProperty(name="current_pue",        type="double", comment="Actual Power Usage Effectiveness for this billing period"),
+                        glue.CfnTable.ColumnProperty(name="pue_cap",            type="double", comment="Contractual maximum PUE allowed under service agreement"),
+                        # ── Pipeline metadata ────────────────────────────────
+                        glue.CfnTable.ColumnProperty(name="processed_at",           type="string",       comment="ISO timestamp when Lambda processed this invoice"),
+                        glue.CfnTable.ColumnProperty(name="source_file",            type="string",       comment="Original S3 key of the raw invoice file"),
+                        glue.CfnTable.ColumnProperty(name="pipeline_version",       type="string",       comment="Pipeline version e.g. 3.0"),
+                        glue.CfnTable.ColumnProperty(name="processing_duration_ms", type="int",          comment="Total Lambda processing time in milliseconds"),
+                        glue.CfnTable.ColumnProperty(name="bedrock_model_used",     type="string",       comment="Bedrock model ID used for extraction"),
+                        glue.CfnTable.ColumnProperty(name="data_quality_warnings",  type="array<string>",comment="Non-critical issues detected during parsing"),
                     ],
                 ),
             ),

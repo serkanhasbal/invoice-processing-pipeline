@@ -1,38 +1,33 @@
 """
-Invoice Parser
---------------
+Invoice Parser — Energy Invoice Schema
+---------------------------------------
 WHAT IT IS:
-  A helper module that takes the raw text response from Bedrock,
-  extracts the JSON, validates its structure, and normalises field
-  values into clean Python types ready to write to S3 and query in Athena.
+  Parses and validates the raw Bedrock response for energy/colocation invoices.
+  Normalises all field types, computes USD conversion, and attaches a
+  data_quality_warnings list to every output record.
 
-WHY IT EXISTS:
-  Bedrock is an AI model. Even with a strict prompt it can occasionally:
-    - Wrap the JSON in markdown code fences (```json ... ```)
-    - Return amounts as strings ("1,250.00") instead of numbers
-    - Return dates in non-standard formats ("01 March 2024")
-    - Return slightly inconsistent amount arithmetic
-    - Return line items with missing fields
+NEW SCHEMA (v3):
+  vendor              — issuing company name
+  invoice_number      — vendor's invoice reference
+  invoice_date        — YYYY-MM-DD
+  period              — YYYY-MM billing period
+  currency            — 3-letter ISO code
+  total_amount        — total due in local currency
+  tax_amount          — tax portion in local currency
+  total_volume_kwh    — electricity consumption in kWh
+  base_rate           — energy rate per kWh in local currency
+  current_pue         — actual PUE for the billing period
+  pue_cap             — contractual PUE cap
+  usd_rate            — exchange rate used (local currency units per 1 USD)
+  total_amount_usd    — total_amount converted to USD
 
-  This module is a defensive layer between the raw AI output and the
-  rest of the pipeline. Every field is validated and normalised here so
-  handler.py and the Athena schema always receive consistent, clean data.
-
-PHASE 2 IMPROVEMENTS OVER PHASE 1:
-  - Tries multiple date format patterns (not just YYYY-MM-DD)
-  - Detects and corrects European decimal notation (1.250,00 → 1250.00)
-  - Validates amount arithmetic (subtotal + tax ≈ total) and logs discrepancies
-  - Caps obviously wrong values (negative amounts set to None)
-  - Adds data_quality_warnings list to the output so issues are traceable
-  - Partial-success: ValidationWarning for non-critical issues (logged but
-    not raised), ValueError only for truly unrecoverable problems
-  - Trims whitespace and normalises encoding in all string fields
+USD CONVERSION:
+  usd_exchange_rates table is read from AppConfig config dict.
+  Format: {"EUR": 0.92, "GBP": 0.79, ...}
+  Meaning: 1 USD = X units of that currency.
+  Conversion: total_amount_usd = total_amount / usd_rate
 
 LAYER: Application code (runs inside AWS Lambda at runtime)
-
-HOW IT CONNECTS:
-  - handler.py calls parse_and_validate() with the raw string from
-    bedrock_client.py and gets back a clean dict ready to write to S3.
 """
 
 import json
@@ -47,80 +42,87 @@ logger = logging.getLogger(__name__)
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-# These fields MUST be present and non-null for the record to be accepted.
-# A missing required field raises ValueError and the invoice is not saved.
-_REQUIRED_FIELDS = {"invoice_id", "vendor_name", "invoice_date", "total_amount"}
+# Required fields — missing any of these raises ValueError (invoice not saved).
+_REQUIRED_FIELDS = {"vendor", "invoice_number", "invoice_date", "total_amount"}
 
-# All expected fields with their defaults.
-# Any field not returned by Bedrock is filled in so the schema is always complete.
+# All expected output fields with defaults.
 _FIELD_DEFAULTS: dict[str, Any] = {
-    "invoice_id":            None,
-    "vendor_name":           None,
-    "invoice_date":          None,
-    "due_date":              None,
-    "currency":              None,
-    "subtotal":              None,
-    "tax_amount":            None,
-    "total_amount":          None,
-    "payment_status":        None,
-    "purchase_order_number": None,
-    "line_items":            [],
+    "vendor":            None,
+    "invoice_number":    None,
+    "invoice_date":      None,
+    "period":            None,
+    "currency":          None,
+    "total_amount":      None,
+    "tax_amount":        None,
+    "total_volume_kwh":  None,
+    "base_rate":         None,
+    "current_pue":       None,
+    "pue_cap":           None,
+    "usd_rate":          None,
+    "total_amount_usd":  None,
 }
 
-# Date formats we attempt to parse, in order of preference.
-# strptime format strings: https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes
+# Date formats tried in order for invoice_date parsing.
 _DATE_FORMATS = [
-    "%Y-%m-%d",    # 2024-03-15  (preferred — Athena native)
-    "%d/%m/%Y",    # 15/03/2024
-    "%m/%d/%Y",    # 03/15/2024
-    "%d-%m-%Y",    # 15-03-2024
-    "%d.%m.%Y",    # 15.03.2024  (European)
-    "%B %d, %Y",   # March 15, 2024
-    "%d %B %Y",    # 15 March 2024
-    "%b %d, %Y",   # Mar 15, 2024
-    "%d %b %Y",    # 15 Mar 2024
-    "%Y/%m/%d",    # 2024/03/15
-    "%d/%m/%y",    # 15/03/24
-    "%m/%d/%y",    # 03/15/24
+    "%Y-%m-%d",    # 2024-11-25  (preferred — Athena native)
+    "%d/%m/%Y",    # 25/11/2024
+    "%m/%d/%Y",    # 11/25/2024
+    "%d-%m-%Y",    # 25-11-2024
+    "%d.%m.%Y",    # 25.11.2024  (European)
+    "%B %d, %Y",   # November 25, 2024
+    "%d %B %Y",    # 25 November 2024
+    "%b %d, %Y",   # Nov 25, 2024
+    "%d %b %Y",    # 25 Nov 2024
+    "%Y/%m/%d",    # 2024/11/25
+    "%d/%m/%y",    # 25/11/24
+    "%m/%d/%y",    # 11/25/24
 ]
 
-# How much subtotal + tax_amount can differ from total_amount before we warn.
-# Small rounding differences (e.g. 0.01) are normal in invoices.
-_AMOUNT_TOLERANCE = 0.10  # 10 cents
+# Period formats tried for YYYY-MM parsing.
+_PERIOD_FORMATS = [
+    "%Y-%m",       # 2024-09
+    "%B %Y",       # September 2024
+    "%b %Y",       # Sep 2024
+    "%m/%Y",       # 09/2024
+    "%m-%Y",       # 09-2024
+]
+
+# Amount consistency tolerance.
+_AMOUNT_TOLERANCE = 0.50  # 50 cents — energy bills can have rounding
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
 
-def parse_and_validate(raw_text: str) -> dict:
+def parse_and_validate(raw_text: str, config: dict | None = None) -> dict:
     """
-    Parse the raw Bedrock response into a validated, normalised invoice dict.
+    Parse the raw Bedrock response into a validated energy invoice dict.
 
     Parameters
     ----------
     raw_text : str
-        The raw text string returned by Bedrock. May be a bare JSON object
-        or wrapped in markdown code fences.
+        Raw text from Bedrock — may contain markdown fences.
+    config : dict, optional
+        AppConfig configuration dict. Used to look up usd_exchange_rates.
+        If None, USD conversion is skipped (usd_rate and total_amount_usd = None).
 
     Returns
     -------
     dict
-        Clean invoice dictionary with all expected fields present.
-        Includes a ``data_quality_warnings`` list (may be empty) describing
-        any non-critical issues detected during normalisation.
+        Clean invoice dict with all fields present plus data_quality_warnings.
 
     Raises
     ------
     ValueError
-        If no valid JSON can be extracted, or required fields are missing/null.
+        If JSON cannot be extracted or required fields are missing.
     """
     warnings: list[str] = []
 
-    # ── Step 1: Extract JSON from raw text ──────────────────────────────────
+    # Step 1: extract JSON from raw text
     json_str = _extract_json_string(raw_text)
 
-    # ── Step 2: Parse JSON ───────────────────────────────────────────────────
+    # Step 2: parse
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError as exc:
@@ -130,39 +132,41 @@ def parse_and_validate(raw_text: str) -> dict:
         ) from exc
 
     if not isinstance(data, dict):
-        raise ValueError(
-            f"Expected a JSON object at the top level, got: {type(data).__name__}"
-        )
+        raise ValueError(f"Expected JSON object, got: {type(data).__name__}")
 
-    # ── Step 3: Fill missing fields with defaults ────────────────────────────
+    # Step 3: fill defaults
     normalised = {**_FIELD_DEFAULTS, **data}
 
-    # ── Step 4: Normalise all field types ────────────────────────────────────
+    # Step 4: normalise types
     normalised, warnings = _normalise_all_fields(normalised, warnings)
 
-    # ── Step 5: Validate required fields ─────────────────────────────────────
+    # Step 5: validate required fields
     _validate_required_fields(normalised)
 
-    # ── Step 6: Cross-field consistency checks ───────────────────────────────
-    warnings = _check_amount_consistency(normalised, warnings)
+    # Step 6: USD conversion
+    normalised, warnings = _apply_usd_conversion(normalised, config or {}, warnings)
 
-    # ── Step 7: Attach quality warnings to the output ────────────────────────
-    # This means every processed invoice carries a record of any issues found.
-    # Great for data quality monitoring in Athena later.
+    # Step 7: cross-field consistency
+    warnings = _check_consistency(normalised, warnings)
+
+    # Step 8: attach warnings
     normalised["data_quality_warnings"] = warnings
 
     if warnings:
         logger.warning(
             "Invoice %s parsed with %d warning(s): %s",
-            normalised.get("invoice_id"), len(warnings), warnings,
+            normalised.get("invoice_number"), len(warnings), warnings,
         )
     else:
         logger.info(
-            "Invoice parsed cleanly: invoice_id=%s vendor=%s total=%s %s",
-            normalised.get("invoice_id"),
-            normalised.get("vendor_name"),
+            "Invoice parsed cleanly: invoice_number=%s vendor=%s "
+            "total=%s %s usd=%s period=%s",
+            normalised.get("invoice_number"),
+            normalised.get("vendor"),
             normalised.get("total_amount"),
             normalised.get("currency", ""),
+            normalised.get("total_amount_usd"),
+            normalised.get("period"),
         )
 
     return normalised
@@ -173,14 +177,7 @@ def parse_and_validate(raw_text: str) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _extract_json_string(text: str) -> str:
-    """
-    Extract a JSON object from text that may contain markdown or other noise.
-
-    Strategy (in order):
-      1. ```json ... ``` or ``` ... ``` markdown code fence
-      2. Outermost { ... } block
-      3. Full text as-is (json.loads will surface the error)
-    """
+    """Extract JSON from text that may contain markdown fences or noise."""
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
     if fence:
         logger.debug("Extracted JSON from markdown code fence")
@@ -191,249 +188,280 @@ def _extract_json_string(text: str) -> str:
         logger.debug("Extracted JSON via outermost brace matching")
         return brace.group(0).strip()
 
-    logger.warning("Could not isolate JSON block; attempting to parse full response text")
+    logger.warning("Could not isolate JSON; attempting to parse full text")
     return text.strip()
 
 
 def _validate_required_fields(data: dict) -> None:
-    """Raise ValueError listing every required field that is null or missing."""
+    """Raise ValueError listing every required field that is null."""
     missing = [f for f in _REQUIRED_FIELDS if data.get(f) is None]
     if missing:
         raise ValueError(
-            f"Invoice missing required fields {missing}. "
-            f"Available fields: { {k: v for k, v in data.items() if k != 'line_items'} }"
+            f"Invoice missing required fields: {missing}. "
+            f"Available: { {k: v for k, v in data.items() if k not in ('data_quality_warnings',)} }"
         )
 
 
 def _normalise_all_fields(data: dict, warnings: list[str]) -> tuple[dict, list[str]]:
-    """Apply type normalisation to every field."""
+    """Normalise types for all fields in the energy invoice schema."""
 
-    # ── Numeric amount fields ─────────────────────────────────────────────────
-    for field in ("subtotal", "tax_amount", "total_amount"):
-        value, warn = _to_float(data[field], field)
-        data[field] = value
+    # Numeric: monetary amounts
+    for field in ("total_amount", "tax_amount"):
+        val, warn = _to_float(data.get(field), field)
+        data[field] = val
         if warn:
             warnings.append(warn)
-        # Negative amounts are almost always a model error
         if data[field] is not None and data[field] < 0:
-            warnings.append(
-                f"Negative value for '{field}': {data[field]}. Setting to None."
-            )
+            warnings.append(f"Negative value for '{field}': {data[field]}. Setting to None.")
             data[field] = None
 
-    # ── Date fields ───────────────────────────────────────────────────────────
-    for field in ("invoice_date", "due_date"):
-        value, warn = _parse_date(data[field], field)
-        data[field] = value
+    # Numeric: energy-specific fields
+    for field in ("total_volume_kwh", "base_rate", "current_pue", "pue_cap"):
+        val, warn = _to_float(data.get(field), field)
+        data[field] = val
         if warn:
             warnings.append(warn)
+        if data[field] is not None and data[field] < 0:
+            warnings.append(f"Negative value for '{field}': {data[field]}. Setting to None.")
+            data[field] = None
 
-    # ── String fields ─────────────────────────────────────────────────────────
-    for field in ("invoice_id", "vendor_name", "currency",
-                  "payment_status", "purchase_order_number"):
-        val = data.get(field)
-        if val is not None:
-            cleaned = str(val).strip()
+    # PUE sanity check: PUE should be >= 1.0
+    for pue_field in ("current_pue", "pue_cap"):
+        val = data.get(pue_field)
+        if val is not None and val < 1.0:
+            warnings.append(
+                f"'{pue_field}' value {val} is below 1.0 which is physically impossible. "
+                f"Setting to None."
+            )
+            data[pue_field] = None
+
+    # Date: invoice_date → YYYY-MM-DD
+    val, warn = _parse_date(data.get("invoice_date"), "invoice_date")
+    data["invoice_date"] = val
+    if warn:
+        warnings.append(warn)
+
+    # Period: → YYYY-MM
+    val, warn = _parse_period(data.get("period"), "period")
+    data["period"] = val
+    if warn:
+        warnings.append(warn)
+
+    # String fields
+    for field in ("vendor", "invoice_number", "currency"):
+        raw = data.get(field)
+        if raw is not None:
+            cleaned = str(raw).strip()
             data[field] = cleaned if cleaned else None
 
-    # ── Normalise payment_status to uppercase enum ────────────────────────────
-    ps = data.get("payment_status")
-    if ps:
-        ps_upper = ps.upper()
-        if ps_upper not in ("PAID", "UNPAID", "OVERDUE"):
-            warnings.append(
-                f"Unexpected payment_status value: '{ps}'. "
-                f"Expected PAID, UNPAID, or OVERDUE. Keeping as-is."
-            )
-        data["payment_status"] = ps_upper
-
-    # ── Normalise currency to uppercase ───────────────────────────────────────
+    # Currency → uppercase
     if data.get("currency"):
         data["currency"] = data["currency"].upper()
-
-    # ── Line items ────────────────────────────────────────────────────────────
-    data["line_items"], item_warnings = _normalise_line_items(
-        data.get("line_items") or []
-    )
-    warnings.extend(item_warnings)
 
     return data, warnings
 
 
+def _apply_usd_conversion(
+    data: dict,
+    config: dict,
+    warnings: list[str],
+) -> tuple[dict, list[str]]:
+    """
+    Compute usd_rate and total_amount_usd from the AppConfig exchange rate table.
+
+    Logic:
+      rates table format: {"EUR": 0.92, ...}  — meaning 1 USD = 0.92 EUR
+      total_amount_usd = total_amount / rate
+
+    If currency is USD, rate = 1.0 and total_amount_usd = total_amount.
+    If currency not in table, logs a warning and skips conversion.
+    """
+    currency = data.get("currency")
+    total    = data.get("total_amount")
+
+    if not currency or total is None:
+        warnings.append(
+            "USD conversion skipped: currency or total_amount is missing."
+        )
+        return data, warnings
+
+    rates: dict = config.get("usd_exchange_rates", {})
+
+    if not rates:
+        warnings.append(
+            "USD conversion skipped: usd_exchange_rates not found in AppConfig."
+        )
+        return data, warnings
+
+    if currency not in rates:
+        warnings.append(
+            f"USD conversion skipped: currency '{currency}' not in "
+            f"usd_exchange_rates table. Available: {list(rates.keys())}"
+        )
+        return data, warnings
+
+    rate = float(rates[currency])
+    if rate <= 0:
+        warnings.append(f"Invalid exchange rate for '{currency}': {rate}. Skipping conversion.")
+        return data, warnings
+
+    data["usd_rate"]         = rate
+    data["total_amount_usd"] = round(total / rate, 2)
+
+    logger.info(
+        "USD conversion: %s %.4f × (1/%.4f) = USD %.2f",
+        currency, total, rate, data["total_amount_usd"],
+    )
+
+    return data, warnings
+
+
+def _check_consistency(data: dict, warnings: list[str]) -> list[str]:
+    """
+    Cross-field consistency checks for energy invoices.
+
+    1. total_amount >= tax_amount
+    2. base_rate × total_volume_kwh × current_pue ≈ net energy charge
+    3. period month should match invoice_date month
+    """
+    total = data.get("total_amount")
+    tax   = data.get("tax_amount")
+
+    # Check 1: total >= tax
+    if total is not None and tax is not None and tax > total:
+        warnings.append(
+            f"tax_amount ({tax}) exceeds total_amount ({total}). "
+            f"Possible extraction error."
+        )
+
+    # Check 2: energy arithmetic
+    volume   = data.get("total_volume_kwh")
+    rate     = data.get("base_rate")
+    pue      = data.get("current_pue")
+
+    if volume is not None and rate is not None and pue is not None and tax is not None:
+        net_amount = total - tax if total is not None else None
+        if net_amount is not None:
+            computed_energy_charge = round(volume * rate * pue, 2)
+            diff = abs(computed_energy_charge - net_amount)
+            # Allow 5% tolerance for additional fees (colocation, handling, etc.)
+            tolerance = max(_AMOUNT_TOLERANCE, net_amount * 0.05)
+            if diff > tolerance:
+                warnings.append(
+                    f"Energy arithmetic check: volume ({volume} kWh) × "
+                    f"base_rate ({rate}) × PUE ({pue}) = {computed_energy_charge}, "
+                    f"but net amount (total - tax) = {net_amount}. "
+                    f"Difference: {diff:.2f}. May include additional fees."
+                )
+
+    # Check 3: period vs invoice_date
+    invoice_date = data.get("invoice_date")
+    period       = data.get("period")
+
+    if invoice_date and period:
+        try:
+            inv_month = invoice_date[:7]  # "2024-11"
+            if not period.startswith(inv_month[:4]):  # at least same year
+                warnings.append(
+                    f"period '{period}' year does not match "
+                    f"invoice_date '{invoice_date}' year. Verify extraction."
+                )
+        except Exception:
+            pass  # non-critical check
+
+    return warnings
+
+
 def _to_float(value: Any, field_name: str) -> tuple[float | None, str | None]:
-    """
-    Convert a value to float, handling common invoice formatting.
-
-    Returns (float_value, warning_message_or_None).
-
-    Handles:
-      - Plain numbers: 1250.00 → 1250.0
-      - String with currency symbols: "$1,250.00" → 1250.0
-      - European notation: "1.250,00" → 1250.0
-      - Already a float or int: returned directly
-    """
+    """Convert a value to float, handling currency formatting."""
     if value is None:
         return None, None
     if isinstance(value, bool):
-        return None, f"Boolean value for numeric field '{field_name}'; setting to None."
+        return None, f"Boolean for numeric field '{field_name}'; setting to None."
     if isinstance(value, (int, float)):
         return float(value), None
     if not isinstance(value, str):
-        return None, f"Unexpected type {type(value).__name__} for '{field_name}'; setting to None."
+        return None, f"Unexpected type {type(value).__name__} for '{field_name}'."
 
     s = value.strip()
 
-    # Detect European notation: has a period for thousands and comma for decimal
-    # e.g. "1.250,00" — the comma comes after the period
+    # European notation: "1.250,00" → "1250.00"
     if re.search(r"\d\.\d{3},\d{2}", s):
         s = s.replace(".", "").replace(",", ".")
 
-    # Strip everything except digits, decimal point, and minus sign
     cleaned = re.sub(r"[^\d.\-]", "", s)
 
     if not cleaned or cleaned == "-":
-        return None, f"Could not parse numeric value '{value}' for field '{field_name}'."
+        return None, f"Could not parse numeric value '{value}' for '{field_name}'."
 
     try:
         return float(cleaned), None
     except ValueError:
-        return None, f"Could not convert '{value}' to number for field '{field_name}'."
+        return None, f"Could not convert '{value}' to number for '{field_name}'."
 
 
 def _parse_date(value: Any, field_name: str) -> tuple[str | None, str | None]:
-    """
-    Parse a date value and return it as a YYYY-MM-DD string.
-
-    Tries multiple common date formats. Athena's date column type
-    requires YYYY-MM-DD, so this conversion matters for analytics queries.
-
-    Returns (date_string_or_None, warning_or_None).
-    """
+    """Parse a date and return YYYY-MM-DD, or the raw value with a warning."""
     if value is None:
         return None, None
-
     if not isinstance(value, str):
         value = str(value)
-
     value = value.strip()
-
     if not value:
         return None, None
 
-    # Already in the right format — fast path
     if re.match(r"^\d{4}-\d{2}-\d{2}$", value):
         return value, None
 
-    # Try each known format
     for fmt in _DATE_FORMATS:
         try:
             parsed = datetime.strptime(value, fmt)
-            converted = parsed.strftime("%Y-%m-%d")
-            logger.debug(
-                "Converted date '%s' using format '%s' → '%s'", value, fmt, converted
-            )
-            return converted, None
+            return parsed.strftime("%Y-%m-%d"), None
         except ValueError:
             continue
 
-    # Could not parse — keep the raw value but warn
-    warn = (
-        f"Could not parse date '{value}' for field '{field_name}'. "
-        f"Keeping raw value. Athena date queries may not work for this record."
+    return value, (
+        f"Could not parse date '{value}' for '{field_name}'. "
+        f"Keeping raw value. Athena date queries may not work."
     )
-    return value, warn
 
 
-def _normalise_line_items(
-    items: list,
-) -> tuple[list[dict], list[str]]:
+def _parse_period(value: Any, field_name: str) -> tuple[str | None, str | None]:
     """
-    Normalise the line_items array.
+    Parse a billing period and return YYYY-MM format.
 
-    Each item is coerced to have: description (str), quantity (float),
-    unit_price (float), line_total (float).
-
-    Missing numeric fields are derived where possible:
-      - If unit_price is missing: unit_price = line_total / quantity
-      - If line_total is missing: line_total = quantity * unit_price
-      - If quantity is missing: quantity = 1.0
-
-    Returns (cleaned_items, warnings).
+    Handles:
+      "2024-09"           → "2024-09"  (already correct)
+      "September 2024"    → "2024-09"
+      "Sep 2024"          → "2024-09"
+      "09/2024"           → "2024-09"
+      "2024-09-01"        → "2024-09"  (truncate day)
     """
-    if not isinstance(items, list):
-        return [], [f"line_items was not a list (got {type(items).__name__}); reset to []."]
+    if value is None:
+        return None, None
+    if not isinstance(value, str):
+        value = str(value)
+    value = value.strip()
+    if not value:
+        return None, None
 
-    cleaned = []
-    warnings = []
+    # Already YYYY-MM
+    if re.match(r"^\d{4}-\d{2}$", value):
+        return value, None
 
-    for i, item in enumerate(items):
-        if not isinstance(item, dict):
-            warnings.append(f"Line item #{i} is not an object; skipped.")
+    # YYYY-MM-DD — truncate to YYYY-MM
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", value):
+        return value[:7], None
+
+    # Try period formats
+    for fmt in _PERIOD_FORMATS:
+        try:
+            parsed = datetime.strptime(value, fmt)
+            return parsed.strftime("%Y-%m"), None
+        except ValueError:
             continue
 
-        desc = str(item.get("description") or "").strip()
-
-        qty_val, qty_warn = _to_float(item.get("quantity"), f"line_items[{i}].quantity")
-        if qty_warn:
-            warnings.append(qty_warn)
-        qty = qty_val if qty_val is not None else 1.0
-
-        up_val, up_warn = _to_float(item.get("unit_price"), f"line_items[{i}].unit_price")
-        if up_warn:
-            warnings.append(up_warn)
-
-        lt_val, lt_warn = _to_float(item.get("line_total"), f"line_items[{i}].line_total")
-        if lt_warn:
-            warnings.append(lt_warn)
-
-        # Derive missing fields
-        if up_val is None and lt_val is not None and qty > 0:
-            up_val = round(lt_val / qty, 6)
-        if lt_val is None and up_val is not None:
-            lt_val = round(qty * up_val, 2)
-
-        cleaned.append({
-            "description": desc,
-            "quantity":    qty,
-            "unit_price":  up_val,
-            "line_total":  lt_val,
-        })
-
-    return cleaned, warnings
-
-
-def _check_amount_consistency(data: dict, warnings: list[str]) -> list[str]:
-    """
-    Check that subtotal + tax_amount ≈ total_amount.
-    Log a warning if the difference exceeds _AMOUNT_TOLERANCE.
-
-    This catches cases where Bedrock read numbers correctly but from
-    the wrong rows (e.g. picked a subtotal from a different section).
-    """
-    subtotal = data.get("subtotal")
-    tax      = data.get("tax_amount")
-    total    = data.get("total_amount")
-
-    if subtotal is not None and tax is not None and total is not None:
-        computed = round(subtotal + tax, 2)
-        diff = abs(computed - total)
-        if diff > _AMOUNT_TOLERANCE:
-            warnings.append(
-                f"Amount inconsistency: subtotal ({subtotal}) + tax ({tax}) = "
-                f"{computed}, but total_amount = {total}. "
-                f"Difference: {diff:.2f}. Keeping total_amount as authoritative."
-            )
-
-    # If subtotal is missing but total and tax are present, derive subtotal
-    if data.get("subtotal") is None and total is not None and tax is not None:
-        data["subtotal"] = round(total - tax, 2)
-        logger.debug("Derived subtotal = total - tax = %s", data["subtotal"])
-
-    # If tax is missing but subtotal and total are present, derive tax
-    if data.get("tax_amount") is None and total is not None and subtotal is not None:
-        derived_tax = round(total - subtotal, 2)
-        if derived_tax >= 0:
-            data["tax_amount"] = derived_tax
-            logger.debug("Derived tax_amount = total - subtotal = %s", derived_tax)
-
-    return warnings
+    return value, (
+        f"Could not parse period '{value}' for '{field_name}'. "
+        f"Expected YYYY-MM format. Keeping raw value."
+    )

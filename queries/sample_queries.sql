@@ -1,20 +1,16 @@
 -- =============================================================================
--- Sample Athena Queries for Invoice Analytics
+-- Sample Athena Queries — Energy Invoice Pipeline
 -- =============================================================================
 -- HOW TO USE:
 --   1. Open the AWS Console → Athena
 --   2. Select workgroup: invoice-analytics
 --   3. Select database:  invoice_db
 --   4. Paste any query below and click Run
---
--- NOTE: Replace 'invoice_db' if you changed the Glue database name.
--- NOTE: All queries use the invoices table defined in the Glue Data Catalog.
 -- =============================================================================
 
 
 -- -----------------------------------------------------------------------------
--- 0. CHECK THE TABLE EXISTS AND HAS DATA
--- Always start here to verify the pipeline is working.
+-- 0. VERIFY DATA IS PRESENT
 -- -----------------------------------------------------------------------------
 
 SELECT COUNT(*) AS total_invoices
@@ -22,199 +18,225 @@ FROM invoice_db.invoices;
 
 
 -- -----------------------------------------------------------------------------
--- 1. VIEW ALL INVOICES
--- -----------------------------------------------------------------------------
-
-SELECT *
-FROM invoice_db.invoices
-LIMIT 50;
-
-
--- -----------------------------------------------------------------------------
--- 2. TOTAL INVOICE VALUE AND COUNT
--- Useful for a summary KPI card on a dashboard.
+-- 1. ALL INVOICES — overview
 -- -----------------------------------------------------------------------------
 
 SELECT
-    COUNT(*)                    AS total_invoices,
-    SUM(total_amount)           AS total_value,
-    AVG(total_amount)           AS average_value,
-    MIN(total_amount)           AS min_invoice,
-    MAX(total_amount)           AS max_invoice
-FROM invoice_db.invoices;
-
-
--- -----------------------------------------------------------------------------
--- 3. SPEND BY VENDOR
--- Shows which vendors you spend the most with.
--- -----------------------------------------------------------------------------
-
-SELECT
-    vendor_name,
-    COUNT(*)            AS invoice_count,
-    SUM(total_amount)   AS total_spend,
-    AVG(total_amount)   AS avg_invoice_value
-FROM invoice_db.invoices
-WHERE vendor_name IS NOT NULL
-GROUP BY vendor_name
-ORDER BY total_spend DESC;
-
-
--- -----------------------------------------------------------------------------
--- 4. SPEND BY CURRENCY
--- Useful when working with multiple currencies.
--- -----------------------------------------------------------------------------
-
-SELECT
-    currency,
-    COUNT(*)            AS invoice_count,
-    SUM(total_amount)   AS total_spend
-FROM invoice_db.invoices
-WHERE currency IS NOT NULL
-GROUP BY currency
-ORDER BY total_spend DESC;
-
-
--- -----------------------------------------------------------------------------
--- 5. MONTHLY SPEND ANALYSIS
--- Groups invoices by year-month for trend analysis.
--- This is the query that powers "spend over time" charts.
--- -----------------------------------------------------------------------------
-
-SELECT
-    DATE_FORMAT(CAST(invoice_date AS DATE), '%Y-%m')    AS month,
-    COUNT(*)                                             AS invoice_count,
-    SUM(total_amount)                                    AS total_spend
-FROM invoice_db.invoices
-WHERE invoice_date IS NOT NULL
-GROUP BY DATE_FORMAT(CAST(invoice_date AS DATE), '%Y-%m')
-ORDER BY month DESC;
-
-
--- -----------------------------------------------------------------------------
--- 6. INVOICES BY PAYMENT STATUS
--- -----------------------------------------------------------------------------
-
-SELECT
-    payment_status,
-    COUNT(*)            AS invoice_count,
-    SUM(total_amount)   AS total_value
-FROM invoice_db.invoices
-GROUP BY payment_status
-ORDER BY invoice_count DESC;
-
-
--- -----------------------------------------------------------------------------
--- 7. OVERDUE INVOICES
--- Find invoices that are unpaid and past their due date.
--- -----------------------------------------------------------------------------
-
-SELECT
-    invoice_id,
-    vendor_name,
+    vendor,
+    invoice_number,
     invoice_date,
-    due_date,
-    total_amount,
+    period,
     currency,
-    payment_status,
-    DATE_DIFF('day', CAST(due_date AS DATE), CURRENT_DATE) AS days_overdue
-FROM invoice_db.invoices
-WHERE
-    payment_status IN ('UNPAID', 'OVERDUE')
-    AND due_date IS NOT NULL
-    AND CAST(due_date AS DATE) < CURRENT_DATE
-ORDER BY days_overdue DESC;
-
-
--- -----------------------------------------------------------------------------
--- 8. TOP 10 HIGHEST-VALUE INVOICES
--- -----------------------------------------------------------------------------
-
-SELECT
-    invoice_id,
-    vendor_name,
-    invoice_date,
     total_amount,
-    currency,
-    payment_status
+    total_amount_usd,
+    total_volume_kwh,
+    current_pue,
+    pue_cap
 FROM invoice_db.invoices
-ORDER BY total_amount DESC
-LIMIT 10;
-
-
--- -----------------------------------------------------------------------------
--- 9. INVOICES IN A DATE RANGE
--- Replace the dates to filter by a specific period.
--- -----------------------------------------------------------------------------
-
-SELECT
-    invoice_id,
-    vendor_name,
-    invoice_date,
-    total_amount,
-    currency
-FROM invoice_db.invoices
-WHERE
-    invoice_date IS NOT NULL
-    AND CAST(invoice_date AS DATE) BETWEEN DATE '2024-01-01' AND DATE '2024-12-31'
 ORDER BY invoice_date DESC;
 
 
 -- -----------------------------------------------------------------------------
--- 10. LINE ITEM ANALYSIS
--- Expands the nested line_items array so you can query individual items.
--- CROSS JOIN UNNEST() "unrolls" the array — one row per line item.
+-- 2. SUMMARY KPIs
+-- Total spend (USD), average invoice, total energy consumed
 -- -----------------------------------------------------------------------------
 
 SELECT
-    i.invoice_id,
-    i.vendor_name,
-    i.invoice_date,
-    li.description     AS line_description,
-    li.quantity,
-    li.unit_price,
-    li.line_total
-FROM invoice_db.invoices i
-CROSS JOIN UNNEST(i.line_items) AS t(li)
-WHERE CARDINALITY(i.line_items) > 0
-ORDER BY i.invoice_date DESC, li.line_total DESC;
-
-
--- -----------------------------------------------------------------------------
--- 11. TAX RATE ANALYSIS
--- Calculates the effective tax rate per invoice.
--- -----------------------------------------------------------------------------
-
-SELECT
-    invoice_id,
-    vendor_name,
-    subtotal,
-    tax_amount,
-    total_amount,
-    ROUND((tax_amount / NULLIF(subtotal, 0)) * 100, 2) AS tax_rate_pct
+    COUNT(*)                            AS total_invoices,
+    ROUND(SUM(total_amount_usd), 2)     AS total_spend_usd,
+    ROUND(AVG(total_amount_usd), 2)     AS avg_invoice_usd,
+    ROUND(SUM(total_volume_kwh), 2)     AS total_kwh_consumed,
+    ROUND(AVG(current_pue), 4)          AS avg_pue
 FROM invoice_db.invoices
-WHERE subtotal IS NOT NULL AND tax_amount IS NOT NULL
-ORDER BY tax_rate_pct DESC;
+WHERE total_amount_usd IS NOT NULL;
 
 
 -- -----------------------------------------------------------------------------
--- 12. INVOICES WITH MISSING DATA
--- Useful for data quality monitoring — find invoices where extraction
--- was incomplete. Good to run after first testing the pipeline.
+-- 3. SPEND BY VENDOR (USD normalised)
+-- Compare vendors on a like-for-like USD basis
 -- -----------------------------------------------------------------------------
 
 SELECT
-    invoice_id,
+    vendor,
+    COUNT(*)                            AS invoice_count,
+    ROUND(SUM(total_amount_usd), 2)     AS total_spend_usd,
+    ROUND(AVG(total_amount_usd), 2)     AS avg_invoice_usd,
+    ROUND(SUM(total_volume_kwh), 2)     AS total_kwh,
+    ROUND(AVG(current_pue), 4)          AS avg_pue
+FROM invoice_db.invoices
+WHERE vendor IS NOT NULL
+GROUP BY vendor
+ORDER BY total_spend_usd DESC;
+
+
+-- -----------------------------------------------------------------------------
+-- 4. MONTHLY SPEND TREND (USD)
+-- Useful for time-series visualisation in QuickSight
+-- -----------------------------------------------------------------------------
+
+SELECT
+    period,
+    COUNT(*)                            AS invoice_count,
+    ROUND(SUM(total_amount_usd), 2)     AS total_spend_usd,
+    ROUND(SUM(total_volume_kwh), 2)     AS total_kwh
+FROM invoice_db.invoices
+WHERE period IS NOT NULL
+  AND total_amount_usd IS NOT NULL
+GROUP BY period
+ORDER BY period ASC;
+
+
+-- -----------------------------------------------------------------------------
+-- 5. SPEND BY CURRENCY (before USD conversion)
+-- Useful to see original billing currency distribution
+-- -----------------------------------------------------------------------------
+
+SELECT
+    currency,
+    COUNT(*)                            AS invoice_count,
+    ROUND(SUM(total_amount), 2)         AS total_local,
+    ROUND(SUM(total_amount_usd), 2)     AS total_usd,
+    MIN(usd_rate)                       AS usd_rate_used
+FROM invoice_db.invoices
+WHERE currency IS NOT NULL
+GROUP BY currency
+ORDER BY total_usd DESC;
+
+
+-- -----------------------------------------------------------------------------
+-- 6. PUE ANALYSIS
+-- Monitor actual PUE vs contractual cap per vendor
+-- Invoices where PUE exceeded cap are a potential billing dispute
+-- -----------------------------------------------------------------------------
+
+SELECT
+    vendor,
+    invoice_number,
+    period,
+    current_pue,
+    pue_cap,
+    ROUND(current_pue - pue_cap, 4)     AS pue_over_cap,
+    CASE
+        WHEN pue_cap IS NOT NULL AND current_pue > pue_cap THEN 'EXCEEDED'
+        WHEN pue_cap IS NOT NULL AND current_pue <= pue_cap THEN 'OK'
+        ELSE 'NO_CAP_DATA'
+    END                                  AS pue_status
+FROM invoice_db.invoices
+WHERE current_pue IS NOT NULL
+ORDER BY pue_over_cap DESC NULLS LAST;
+
+
+-- -----------------------------------------------------------------------------
+-- 7. ENERGY COST PER KWH (effective rate including PUE and tax)
+-- Shows the all-in cost per kWh consumed by IT equipment
+-- effective_rate = total_amount_usd / total_volume_kwh
+-- -----------------------------------------------------------------------------
+
+SELECT
+    vendor,
+    period,
+    total_volume_kwh,
+    base_rate,
+    current_pue,
+    total_amount_usd,
+    CASE
+        WHEN total_volume_kwh > 0
+        THEN ROUND(total_amount_usd / total_volume_kwh, 6)
+        ELSE NULL
+    END                                  AS effective_usd_per_kwh
+FROM invoice_db.invoices
+WHERE total_volume_kwh IS NOT NULL
+  AND total_amount_usd IS NOT NULL
+ORDER BY period DESC;
+
+
+-- -----------------------------------------------------------------------------
+-- 8. VENDOR PUE TREND OVER TIME
+-- Track whether a vendor's PUE is improving or worsening month over month
+-- -----------------------------------------------------------------------------
+
+SELECT
+    vendor,
+    period,
+    current_pue,
+    pue_cap,
+    total_volume_kwh,
+    ROUND(total_amount_usd, 2)          AS total_usd
+FROM invoice_db.invoices
+WHERE vendor IS NOT NULL
+  AND period IS NOT NULL
+  AND current_pue IS NOT NULL
+ORDER BY vendor ASC, period ASC;
+
+
+-- -----------------------------------------------------------------------------
+-- 9. HIGH VALUE INVOICES (USD)
+-- -----------------------------------------------------------------------------
+
+SELECT
+    vendor,
+    invoice_number,
+    invoice_date,
+    period,
+    currency,
+    total_amount,
+    total_amount_usd,
+    total_volume_kwh,
+    current_pue
+FROM invoice_db.invoices
+ORDER BY total_amount_usd DESC NULLS LAST
+LIMIT 10;
+
+
+-- -----------------------------------------------------------------------------
+-- 10. DATA QUALITY CHECK
+-- Find invoices with missing energy fields
+-- -----------------------------------------------------------------------------
+
+SELECT
+    invoice_number,
+    vendor,
+    period,
     source_file,
     processed_at,
-    CASE WHEN invoice_id        IS NULL THEN 'missing invoice_id '        ELSE '' END ||
-    CASE WHEN vendor_name       IS NULL THEN 'missing vendor_name '       ELSE '' END ||
-    CASE WHEN invoice_date      IS NULL THEN 'missing invoice_date '      ELSE '' END ||
-    CASE WHEN total_amount      IS NULL THEN 'missing total_amount '      ELSE '' END
-    AS missing_fields
+    CASE WHEN total_volume_kwh IS NULL THEN 'missing_kwh '    ELSE '' END ||
+    CASE WHEN base_rate        IS NULL THEN 'missing_rate '   ELSE '' END ||
+    CASE WHEN current_pue      IS NULL THEN 'missing_pue '    ELSE '' END ||
+    CASE WHEN total_amount_usd IS NULL THEN 'missing_usd '    ELSE '' END
+                                        AS missing_fields,
+    CARDINALITY(data_quality_warnings)  AS warning_count
 FROM invoice_db.invoices
 WHERE
-    invoice_id   IS NULL
-    OR vendor_name  IS NULL
-    OR invoice_date IS NULL
-    OR total_amount IS NULL;
+    total_volume_kwh IS NULL
+    OR base_rate     IS NULL
+    OR current_pue   IS NULL
+    OR total_amount_usd IS NULL;
+
+
+-- -----------------------------------------------------------------------------
+-- 11. PERIOD-OVER-PERIOD SPEND CHANGE
+-- Compare total USD spend between consecutive months
+-- -----------------------------------------------------------------------------
+
+WITH monthly AS (
+    SELECT
+        period,
+        ROUND(SUM(total_amount_usd), 2) AS total_usd
+    FROM invoice_db.invoices
+    WHERE period IS NOT NULL
+      AND total_amount_usd IS NOT NULL
+    GROUP BY period
+)
+SELECT
+    period,
+    total_usd,
+    LAG(total_usd) OVER (ORDER BY period)           AS prev_month_usd,
+    ROUND(
+        total_usd - LAG(total_usd) OVER (ORDER BY period),
+    2)                                               AS change_usd,
+    ROUND(
+        (total_usd - LAG(total_usd) OVER (ORDER BY period))
+        / NULLIF(LAG(total_usd) OVER (ORDER BY period), 0) * 100,
+    1)                                               AS change_pct
+FROM monthly
+ORDER BY period ASC;
