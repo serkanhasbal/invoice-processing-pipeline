@@ -1,16 +1,16 @@
 """
-Energy Invoice Generator
--------------------------
-Generates synthetic colocation/power invoices from different providers.
-All data is completely fictional — no real invoices used.
+Energy Invoice Generator — Fictional Data
+------------------------------------------
+Generates synthetic colocation/power invoices from completely fictional providers.
+NO real company names, NO real location codes, NO real addresses.
 
-Providers simulated:
-  1. Equinix (Paris, FR)     — EUR, French data centre
-  2. Digital Realty (London) — GBP, UK data centre
-  3. CyrusOne (Frankfurt)    — EUR, German data centre
-  4. NTT (Zurich)            — CHF, Swiss data centre
-  5. Vantage (Amsterdam)     — EUR, Dutch data centre
-  6. Iron Mountain (London)  — GBP, UK data centre
+Fictional providers:
+  1. Nexova Datacenters SARL     — Paris area, EUR
+  2. BritCore Hosting Ltd        — London area, GBP
+  3. Rheintech Rechenzentrum AG  — Frankfurt area, EUR
+  4. Alpencloud Services AG      — Zurich area, CHF
+  5. Deltanode BV                — Amsterdam area, EUR
+  6. Severn Digital Facilities   — London area, GBP
 
 Run:
     python3 scripts/generate_energy_invoices.py
@@ -25,7 +25,7 @@ from reportlab.platypus import (
     Paragraph, Spacer, HRFlowable
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_RIGHT, TA_LEFT, TA_CENTER
+from reportlab.lib.enums import TA_RIGHT, TA_CENTER
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "sample_invoices")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -34,11 +34,8 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 def _styles():
     s = getSampleStyleSheet()
     s.add(ParagraphStyle("R",   parent=s["Normal"], alignment=TA_RIGHT))
-    s.add(ParagraphStyle("C",   parent=s["Normal"], alignment=TA_CENTER))
     s.add(ParagraphStyle("B",   parent=s["Normal"], fontName="Helvetica-Bold"))
-    s.add(ParagraphStyle("T",   parent=s["Normal"], fontName="Helvetica-Bold", fontSize=20))
     s.add(ParagraphStyle("Sm",  parent=s["Normal"], fontSize=8))
-    s.add(ParagraphStyle("SmR", parent=s["Normal"], fontSize=8, alignment=TA_RIGHT))
     return s
 
 
@@ -56,34 +53,44 @@ def _table_style(header_color):
     ])
 
 
+def _totals_style():
+    return TableStyle([
+        ("ALIGN",         (1, 0), (-1, -1), "RIGHT"),
+        ("FONTNAME",      (1, 2), (-1, 2),  "Helvetica-Bold"),
+        ("FONTSIZE",      (1, 2), (-1, 2),  11),
+        ("LINEABOVE",     (1, 2), (-1, 2),  1, colors.black),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ])
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. Equinix Paris — EUR
+# 1. Nexova Datacenters SARL — Paris, EUR
 # ─────────────────────────────────────────────────────────────────────────────
-def make_equinix_paris():
-    path = os.path.join(OUTPUT_DIR, "energy_equinix_paris_PA13_202409.pdf")
+def make_nexova_paris():
+    path = os.path.join(OUTPUT_DIR, "energy_nexova_paris_202409.pdf")
     doc = SimpleDocTemplate(path, pagesize=A4,
                             leftMargin=20*mm, rightMargin=20*mm,
                             topMargin=20*mm, bottomMargin=20*mm)
     s = _styles()
-    col = colors.HexColor("#003087")  # Equinix blue
+    col = colors.HexColor("#1A3A6B")
     story = []
 
-    story.append(Paragraph("EQUINIX", ParagraphStyle("EQ", fontName="Helvetica-Bold",
-                 fontSize=28, textColor=col)))
-    story.append(Paragraph("Equinix Hyperscale 2 (PA13) SAS", s["Normal"]))
-    story.append(Paragraph("114 Rue Ambroise Croizat, 93200 Saint-Denis, France", s["Normal"]))
-    story.append(Paragraph("TVA Intra: FR 76 432 876 543  |  billing@equinix.com", s["Normal"]))
+    story.append(Paragraph("NEXOVA DATACENTERS",
+                 ParagraphStyle("H", fontName="Helvetica-Bold", fontSize=26, textColor=col)))
+    story.append(Paragraph("Nexova Datacenters SARL", s["Normal"]))
+    story.append(Paragraph("42 Rue de la Technologie, 93200 Aubervilliers, France", s["Normal"]))
+    story.append(Paragraph("TVA Intra: FR 12 987 654 321  |  facturation@nexova-dc.fr", s["Normal"]))
     story.append(Spacer(1, 5*mm))
     story.append(HRFlowable(width="100%", thickness=2, color=col))
     story.append(Spacer(1, 4*mm))
 
     meta = [
         ["FACTURE / INVOICE", ""],
-        ["Numéro de facture:", "372220000016"],
-        ["Date de facture:",   "25 octobre 2024"],
-        ["Période de facturation:", "Octobre 2024"],
-        ["Client:", "GlobalTech Solutions SAS\n12 Avenue des Champs-Élysées\n75008 Paris, France"],
-        ["Contrat:", "IBX-PA13-2019-00892"],
+        ["Numéro de facture:", "NXV-2024-09-00447"],
+        ["Date de facture:",   "30 septembre 2024"],
+        ["Période de facturation:", "Septembre 2024"],
+        ["Client:", "Marchand Capital Partners SAS\n18 Boulevard Haussmann\n75009 Paris, France"],
+        ["Référence contrat:", "NXV-MCP-2020-0091"],
     ]
     t = Table(meta, colWidths=[55*mm, 120*mm])
     t.setStyle(TableStyle([("FONTNAME",(0,0),(0,-1),"Helvetica-Bold"),
@@ -94,14 +101,14 @@ def make_equinix_paris():
     story.append(t)
     story.append(Spacer(1, 6*mm))
 
-    story.append(Paragraph("Détail de la consommation électrique", s["B"]))
+    story.append(Paragraph("Détail consommation électrique — Septembre 2024", s["B"]))
     story.append(Spacer(1, 2*mm))
     items = [
-        ["Description",                          "Unité",  "Quantité",   "Tarif",         "Montant HT"],
-        ["Consommation électrique — Octobre 2024","kWh",   "1,947,094",  "€0.09175/kWh",  "€178,682.37"],
-        ["Majoration PUE (1.302)",                "factor", "—",          "—",             "€ 55,164.97"],
-        ["Refroidissement & Infrastructure",      "forfait","1",          "€12,500.00",    "€ 12,500.00"],
-        ["Remote Hands (4h)",                     "heure",  "4",          "€95.00/h",      "€    380.00"],
+        ["Description",                         "Unité",  "Quantité",  "Tarif",         "Montant HT"],
+        ["Consommation IT mesurée",              "kWh",   "1,947,094", "€0.09175/kWh",  "€178,682.37"],
+        ["Majoration PUE réel (1.302)",          "coeff.", "—",         "—",             "€ 55,164.97"],
+        ["Infrastructure & refroidissement",    "forfait","1",          "€12,500.00",    "€ 12,500.00"],
+        ["Service technique sur site (4h)",      "heure",  "4",         "€95.00/h",      "€    380.00"],
     ]
     t2 = Table(items, colWidths=[75*mm, 18*mm, 24*mm, 30*mm, 30*mm])
     t2.setStyle(_table_style(col))
@@ -109,55 +116,50 @@ def make_equinix_paris():
     story.append(Spacer(1, 4*mm))
 
     totals = [
-        ["", "Sous-total HT:",    "€ 246,727.34"],
-        ["", "TVA 20%:",          "€  49,345.47"],
-        ["", "TOTAL TTC:",        "€ 296,072.81"],
+        ["", "Sous-total HT:",   "€ 246,727.34"],
+        ["", "TVA 20%:",         "€  49,345.47"],
+        ["", "TOTAL TTC:",       "€ 296,072.81"],
     ]
     t3 = Table(totals, colWidths=[105*mm, 40*mm, 40*mm])
-    t3.setStyle(TableStyle([("ALIGN",(1,0),(-1,-1),"RIGHT"),
-                             ("FONTNAME",(1,2),(-1,2),"Helvetica-Bold"),
-                             ("FONTSIZE",(1,2),(-1,2),11),
-                             ("LINEABOVE",(1,2),(-1,2),1,colors.black),
-                             ("BOTTOMPADDING",(0,0),(-1,-1),4)]))
+    t3.setStyle(_totals_style())
     story.append(t3)
     story.append(Spacer(1, 5*mm))
-
-    story.append(Paragraph("PUE Réel: 1.302  |  PUE Contractuel Maximum: 1.50", s["B"]))
+    story.append(Paragraph("PUE Réel: 1.302  |  PUE Maximum Contractuel: 1.50", s["B"]))
     story.append(Spacer(1, 3*mm))
-    story.append(Paragraph("Échéance: 30 jours — IBAN: FR76 3000 6000 0112 3456 7890 189", s["Sm"]))
+    story.append(Paragraph("Échéance: 30 jours — IBAN: FR76 1820 6004 8800 1234 5678 900", s["Sm"]))
 
     doc.build(story)
     print(f"  Created: {path}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. Digital Realty London — GBP
+# 2. BritCore Hosting Ltd — London, GBP
 # ─────────────────────────────────────────────────────────────────────────────
-def make_digital_realty_london():
-    path = os.path.join(OUTPUT_DIR, "energy_digitalrealty_london_LHR8_202410.pdf")
+def make_britcore_london():
+    path = os.path.join(OUTPUT_DIR, "energy_britcore_london_202410.pdf")
     doc = SimpleDocTemplate(path, pagesize=A4,
                             leftMargin=20*mm, rightMargin=20*mm,
                             topMargin=20*mm, bottomMargin=20*mm)
     s = _styles()
-    col = colors.HexColor("#0066CC")
+    col = colors.HexColor("#0055A4")
     story = []
 
-    story.append(Paragraph("Digital Realty", ParagraphStyle("DR", fontName="Helvetica-Bold",
-                 fontSize=24, textColor=col)))
-    story.append(Paragraph("Digital Realty Trust UK Limited  —  LHR8 Data Centre", s["Normal"]))
-    story.append(Paragraph("Buckingham Avenue, Slough SL1 4NB, United Kingdom", s["Normal"]))
-    story.append(Paragraph("VAT No: GB 294 7654 32  |  invoicing@digitalrealty.com", s["Normal"]))
+    story.append(Paragraph("BritCore Hosting",
+                 ParagraphStyle("H", fontName="Helvetica-Bold", fontSize=26, textColor=col)))
+    story.append(Paragraph("BritCore Hosting Ltd  —  West London Data Centre", s["Normal"]))
+    story.append(Paragraph("12 Whitmore Road, Park Royal, London NW10 7BW, United Kingdom", s["Normal"]))
+    story.append(Paragraph("VAT No: GB 345 8765 12  |  billing@britcorehosting.co.uk", s["Normal"]))
     story.append(Spacer(1, 5*mm))
     story.append(HRFlowable(width="100%", thickness=2, color=col))
     story.append(Spacer(1, 4*mm))
 
     meta = [
         ["TAX INVOICE", ""],
-        ["Invoice Number:", "DR-LHR8-2024-10-00441"],
+        ["Invoice Number:", "BCH-2024-10-00882"],
         ["Invoice Date:",   "31 October 2024"],
         ["Billing Period:", "October 2024"],
-        ["Bill To:", "Meridian Capital Management Ltd\n1 Canada Square, Canary Wharf\nLondon E14 5AB"],
-        ["Contract Ref:", "LHR8-CAB-0044-A"],
+        ["Bill To:", "Westfield Asset Management Ltd\n4 Broadgate, London EC2M 2QS"],
+        ["Contract Ref:", "BCH-WAM-2021-0034"],
     ]
     t = Table(meta, colWidths=[50*mm, 120*mm])
     t.setStyle(TableStyle([("FONTNAME",(0,0),(0,-1),"Helvetica-Bold"),
@@ -171,11 +173,11 @@ def make_digital_realty_london():
     story.append(Paragraph("Power Consumption Detail — October 2024", s["B"]))
     story.append(Spacer(1, 2*mm))
     items = [
-        ["Description",                         "Unit",    "Qty",        "Rate",           "Amount"],
-        ["IT Power Consumption",                 "kWh",    "823,450",    "£0.1124/kWh",    "£92,555.88"],
-        ["PUE Uplift (measured PUE: 1.385)",     "factor",  "—",          "—",             "£32,394.56"],
-        ["Cross Connect — 10GbE (×4)",           "port",    "4",          "£120.00/mo",    "£   480.00"],
-        ["Remote Hands Standard (2h)",           "hour",    "2",          "£85.00/h",      "£   170.00"],
+        ["Description",                        "Unit",   "Qty",       "Rate",           "Amount"],
+        ["Metered IT Power Consumption",        "kWh",   "823,450",   "£0.1124/kWh",   "£ 92,555.88"],
+        ["PUE Efficiency Uplift (1.385)",        "factor", "—",         "—",             "£ 32,394.56"],
+        ["Cross-Connect Ports (×4)",             "port",   "4",         "£120.00/mo",    "£    480.00"],
+        ["Remote Hands (2h)",                    "hour",   "2",         "£85.00/h",      "£    170.00"],
     ]
     t2 = Table(items, colWidths=[75*mm, 18*mm, 22*mm, 32*mm, 30*mm])
     t2.setStyle(_table_style(col))
@@ -183,54 +185,50 @@ def make_digital_realty_london():
     story.append(Spacer(1, 4*mm))
 
     totals = [
-        ["", "Net Amount:",    "£ 125,600.44"],
-        ["", "VAT (20%):",     "£  25,120.09"],
-        ["", "Total Due:",     "£ 150,720.53"],
+        ["", "Net Amount:",  "£ 125,600.44"],
+        ["", "VAT (20%):",   "£  25,120.09"],
+        ["", "Total Due:",   "£ 150,720.53"],
     ]
     t3 = Table(totals, colWidths=[105*mm, 40*mm, 40*mm])
-    t3.setStyle(TableStyle([("ALIGN",(1,0),(-1,-1),"RIGHT"),
-                             ("FONTNAME",(1,2),(-1,2),"Helvetica-Bold"),
-                             ("FONTSIZE",(1,2),(-1,2),11),
-                             ("LINEABOVE",(1,2),(-1,2),1,colors.black),
-                             ("BOTTOMPADDING",(0,0),(-1,-1),4)]))
+    t3.setStyle(_totals_style())
     story.append(t3)
     story.append(Spacer(1, 5*mm))
     story.append(Paragraph("Actual PUE: 1.385  |  Contracted PUE Cap: 1.45", s["B"]))
     story.append(Spacer(1, 3*mm))
-    story.append(Paragraph("Payment: 30 days net — Sort: 60-00-01 | Acc: 31926819", s["Sm"]))
+    story.append(Paragraph("Payment Terms: 30 days — Sort: 40-22-33 | Acc: 12345678", s["Sm"]))
 
     doc.build(story)
     print(f"  Created: {path}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. CyrusOne Frankfurt — EUR
+# 3. Rheintech Rechenzentrum AG — Frankfurt, EUR
 # ─────────────────────────────────────────────────────────────────────────────
-def make_cyrusone_frankfurt():
-    path = os.path.join(OUTPUT_DIR, "energy_cyrusone_frankfurt_FRA1_202410.pdf")
+def make_rheintech_frankfurt():
+    path = os.path.join(OUTPUT_DIR, "energy_rheintech_frankfurt_202410.pdf")
     doc = SimpleDocTemplate(path, pagesize=A4,
                             leftMargin=20*mm, rightMargin=20*mm,
                             topMargin=20*mm, bottomMargin=20*mm)
     s = _styles()
-    col = colors.HexColor("#E31837")
+    col = colors.HexColor("#C0392B")
     story = []
 
-    story.append(Paragraph("CyrusOne", ParagraphStyle("CO", fontName="Helvetica-Bold",
-                 fontSize=26, textColor=col)))
-    story.append(Paragraph("CyrusOne GmbH  —  Rechenzentrum Frankfurt FRA1", s["Normal"]))
-    story.append(Paragraph("Grenzstraße 28, 65933 Frankfurt am Main, Deutschland", s["Normal"]))
-    story.append(Paragraph("USt-IdNr: DE 298 765 432  |  billing-eu@cyrusone.com", s["Normal"]))
+    story.append(Paragraph("RHEINTECH",
+                 ParagraphStyle("H", fontName="Helvetica-Bold", fontSize=28, textColor=col)))
+    story.append(Paragraph("Rheintech Rechenzentrum AG", s["Normal"]))
+    story.append(Paragraph("Industriepark Süd 14, 60599 Frankfurt am Main, Deutschland", s["Normal"]))
+    story.append(Paragraph("USt-IdNr: DE 312 876 543  |  abrechnung@rheintech-rz.de", s["Normal"]))
     story.append(Spacer(1, 5*mm))
     story.append(HRFlowable(width="100%", thickness=2, color=col))
     story.append(Spacer(1, 4*mm))
 
     meta = [
         ["RECHNUNG", ""],
-        ["Rechnungsnummer:", "CO-FRA1-2024-10-0887"],
+        ["Rechnungsnummer:", "RHT-2024-10-01124"],
         ["Rechnungsdatum:",  "31. Oktober 2024"],
         ["Abrechnungszeitraum:", "Oktober 2024"],
-        ["Auftraggeber:", "Nexus Financial AG\nTaunusanlage 12\n60325 Frankfurt am Main"],
-        ["Vertragsnummer:", "FRA1-2022-0091"],
+        ["Auftraggeber:", "Nordbank Vermögensverwaltung AG\nKaiserstraße 22\n60311 Frankfurt am Main"],
+        ["Vertragsnummer:", "RHT-NBV-2022-0077"],
     ]
     t = Table(meta, colWidths=[55*mm, 120*mm])
     t.setStyle(TableStyle([("FONTNAME",(0,0),(0,-1),"Helvetica-Bold"),
@@ -244,11 +242,11 @@ def make_cyrusone_frankfurt():
     story.append(Paragraph("Stromverbrauch Oktober 2024", s["B"]))
     story.append(Spacer(1, 2*mm))
     items = [
-        ["Leistungsbeschreibung",               "Einheit", "Menge",      "Preis",          "Betrag"],
-        ["IT-Stromverbrauch",                    "kWh",    "1,124,800",  "€0.0882/kWh",   "€ 99,207.36"],
-        ["PUE-Aufschlag (gemessener PUE: 1.28)", "Faktor",  "—",          "—",             "€ 24,801.84"],
-        ["Kühlung & Infrastruktur",              "Pausch.", "1",          "€8,200.00",     "€  8,200.00"],
-        ["Bandbreite 100G Uplink (2×)",          "Port",    "2",          "€950.00/Mo",    "€  1,900.00"],
+        ["Leistungsbeschreibung",               "Einheit","Menge",     "Preis",         "Betrag"],
+        ["IT-Stromverbrauch (gemessen)",         "kWh",   "1,124,800", "€0.0882/kWh",  "€ 99,207.36"],
+        ["PUE-Aufschlag (gemessen: 1.28)",       "Faktor", "—",         "—",            "€ 24,801.84"],
+        ["Kühlung & Infrastruktur",              "Pausch.","1",         "€8,200.00",    "€  8,200.00"],
+        ["100G Bandbreite Uplink (2 Ports)",     "Port",   "2",         "€950.00/Mo",   "€  1,900.00"],
     ]
     t2 = Table(items, colWidths=[75*mm, 18*mm, 24*mm, 28*mm, 32*mm])
     t2.setStyle(_table_style(col))
@@ -256,54 +254,50 @@ def make_cyrusone_frankfurt():
     story.append(Spacer(1, 4*mm))
 
     totals = [
-        ["", "Nettobetrag:",    "€ 134,109.20"],
-        ["", "MwSt. 19%:",     "€  25,480.75"],
+        ["", "Nettobetrag:",     "€ 134,109.20"],
+        ["", "MwSt. 19%:",       "€  25,480.75"],
         ["", "Rechnungsbetrag:", "€ 159,589.95"],
     ]
     t3 = Table(totals, colWidths=[105*mm, 40*mm, 40*mm])
-    t3.setStyle(TableStyle([("ALIGN",(1,0),(-1,-1),"RIGHT"),
-                             ("FONTNAME",(1,2),(-1,2),"Helvetica-Bold"),
-                             ("FONTSIZE",(1,2),(-1,2),11),
-                             ("LINEABOVE",(1,2),(-1,2),1,colors.black),
-                             ("BOTTOMPADDING",(0,0),(-1,-1),4)]))
+    t3.setStyle(_totals_style())
     story.append(t3)
     story.append(Spacer(1, 5*mm))
     story.append(Paragraph("Gemessener PUE: 1.28  |  Vertraglicher PUE-Cap: 1.35", s["B"]))
     story.append(Spacer(1, 3*mm))
-    story.append(Paragraph("Zahlungsziel: 30 Tage netto — IBAN: DE89 3704 0044 0532 0130 00", s["Sm"]))
+    story.append(Paragraph("Zahlungsziel: 30 Tage netto — IBAN: DE12 5005 0201 0012 3456 78", s["Sm"]))
 
     doc.build(story)
     print(f"  Created: {path}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. NTT Zurich — CHF
+# 4. Alpencloud Services AG — Zurich, CHF
 # ─────────────────────────────────────────────────────────────────────────────
-def make_ntt_zurich():
-    path = os.path.join(OUTPUT_DIR, "energy_ntt_zurich_ZRH1_202410.pdf")
+def make_alpencloud_zurich():
+    path = os.path.join(OUTPUT_DIR, "energy_alpencloud_zurich_202410.pdf")
     doc = SimpleDocTemplate(path, pagesize=A4,
                             leftMargin=20*mm, rightMargin=20*mm,
                             topMargin=20*mm, bottomMargin=20*mm)
     s = _styles()
-    col = colors.HexColor("#009B77")
+    col = colors.HexColor("#2E7D32")
     story = []
 
-    story.append(Paragraph("NTT Global Data Centers", ParagraphStyle("NTT", fontName="Helvetica-Bold",
-                 fontSize=20, textColor=col)))
-    story.append(Paragraph("NTT Ltd. Switzerland AG  —  ZRH1 Zürich", s["Normal"]))
-    story.append(Paragraph("Hardturmstrasse 253, 8005 Zürich, Schweiz", s["Normal"]))
-    story.append(Paragraph("MWST-Nr: CHE-456.123.789 MWST  |  billing.ch@ntt.com", s["Normal"]))
+    story.append(Paragraph("Alpencloud Services",
+                 ParagraphStyle("H", fontName="Helvetica-Bold", fontSize=24, textColor=col)))
+    story.append(Paragraph("Alpencloud Services AG  —  Rechenzentrum Zürich-West", s["Normal"]))
+    story.append(Paragraph("Werkstrasse 88, 8005 Zürich, Schweiz", s["Normal"]))
+    story.append(Paragraph("MWST-Nr: CHE-987.654.321 MWST  |  billing@alpencloud.ch", s["Normal"]))
     story.append(Spacer(1, 5*mm))
     story.append(HRFlowable(width="100%", thickness=2, color=col))
     story.append(Spacer(1, 4*mm))
 
     meta = [
         ["RECHNUNG / INVOICE", ""],
-        ["Rechnungsnummer:", "NTT-ZRH1-2024-10-0234"],
-        ["Datum:", "31. Oktober 2024"],
+        ["Rechnungsnummer:", "APC-2024-10-00567"],
+        ["Datum:",           "31. Oktober 2024"],
         ["Abrechnungsperiode:", "Oktober 2024"],
-        ["Auftraggeber:", "Swiss Banking Partners AG\nBahnhofstrasse 10\n8001 Zürich, Schweiz"],
-        ["Referenz:", "ZRH1-SBP-2021-0044"],
+        ["Auftraggeber:", "Helvetia Finanzgruppe AG\nParadeplatz 4\n8001 Zürich, Schweiz"],
+        ["Referenz:", "APC-HFG-2021-0088"],
     ]
     t = Table(meta, colWidths=[55*mm, 120*mm])
     t.setStyle(TableStyle([("FONTNAME",(0,0),(0,-1),"Helvetica-Bold"),
@@ -317,11 +311,11 @@ def make_ntt_zurich():
     story.append(Paragraph("Stromverbrauch / Power Consumption — Oktober 2024", s["B"]))
     story.append(Spacer(1, 2*mm))
     items = [
-        ["Beschreibung",                          "Einheit", "Menge",     "Tarif",          "Betrag CHF"],
-        ["Stromverbrauch IT-Lasten",               "kWh",    "654,200",   "CHF 0.1450/kWh", "CHF 94,859.00"],
-        ["PUE-Koeffizient (1.22)",                 "Faktor",  "—",         "—",              "CHF 20,869.98"],
-        ["Klimatisierung & Facility",              "Pausch.", "1",         "CHF 6,800.00",   "CHF  6,800.00"],
-        ["Managed NOC Service (24/7)",             "Pausch.", "1",         "CHF 2,400.00",   "CHF  2,400.00"],
+        ["Beschreibung",                        "Einheit","Menge",    "Tarif",           "Betrag CHF"],
+        ["Gemessener IT-Stromverbrauch",         "kWh",   "654,200",  "CHF 0.1450/kWh", "CHF 94,859.00"],
+        ["PUE-Koeffizient (1.22)",               "Faktor", "—",        "—",              "CHF 20,869.98"],
+        ["Klimatisierung & Facility",            "Pausch.","1",        "CHF 6,800.00",   "CHF  6,800.00"],
+        ["Managed NOC Service (24/7)",           "Pausch.","1",        "CHF 2,400.00",   "CHF  2,400.00"],
     ]
     t2 = Table(items, colWidths=[73*mm, 18*mm, 22*mm, 34*mm, 32*mm])
     t2.setStyle(_table_style(col))
@@ -334,49 +328,45 @@ def make_ntt_zurich():
         ["", "Rechnungstotal:", "CHF 135,048.23"],
     ]
     t3 = Table(totals, colWidths=[105*mm, 40*mm, 40*mm])
-    t3.setStyle(TableStyle([("ALIGN",(1,0),(-1,-1),"RIGHT"),
-                             ("FONTNAME",(1,2),(-1,2),"Helvetica-Bold"),
-                             ("FONTSIZE",(1,2),(-1,2),11),
-                             ("LINEABOVE",(1,2),(-1,2),1,colors.black),
-                             ("BOTTOMPADDING",(0,0),(-1,-1),4)]))
+    t3.setStyle(_totals_style())
     story.append(t3)
     story.append(Spacer(1, 5*mm))
     story.append(Paragraph("Gemessener PUE: 1.22  |  Vertraglicher PUE-Cap: 1.30", s["B"]))
     story.append(Spacer(1, 3*mm))
-    story.append(Paragraph("Zahlungsfrist: 30 Tage  —  IBAN: CH56 0483 5012 3456 7800 9", s["Sm"]))
+    story.append(Paragraph("Zahlungsfrist: 30 Tage — IBAN: CH93 0076 2011 6238 5295 7", s["Sm"]))
 
     doc.build(story)
     print(f"  Created: {path}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. Vantage Amsterdam — EUR
+# 5. Deltanode BV — Amsterdam, EUR
 # ─────────────────────────────────────────────────────────────────────────────
-def make_vantage_amsterdam():
-    path = os.path.join(OUTPUT_DIR, "energy_vantage_amsterdam_AMS1_202411.pdf")
+def make_deltanode_amsterdam():
+    path = os.path.join(OUTPUT_DIR, "energy_deltanode_amsterdam_202411.pdf")
     doc = SimpleDocTemplate(path, pagesize=A4,
                             leftMargin=20*mm, rightMargin=20*mm,
                             topMargin=20*mm, bottomMargin=20*mm)
     s = _styles()
-    col = colors.HexColor("#FF6B00")
+    col = colors.HexColor("#E65100")
     story = []
 
-    story.append(Paragraph("Vantage Data Centers", ParagraphStyle("VDC", fontName="Helvetica-Bold",
-                 fontSize=22, textColor=col)))
-    story.append(Paragraph("Vantage DC Netherlands B.V.  —  AMS1 Amsterdam", s["Normal"]))
-    story.append(Paragraph("Gyroscoopweg 50, 1042 AX Amsterdam, Netherlands", s["Normal"]))
-    story.append(Paragraph("BTW-nummer: NL 863 452 917 B01  |  billing@vantagedc.com", s["Normal"]))
+    story.append(Paragraph("DELTANODE",
+                 ParagraphStyle("H", fontName="Helvetica-Bold", fontSize=28, textColor=col)))
+    story.append(Paragraph("Deltanode BV  —  Datacentrum Amsterdam Noord", s["Normal"]))
+    story.append(Paragraph("Asterweg 20, 1031 HN Amsterdam, Nederland", s["Normal"]))
+    story.append(Paragraph("BTW-nummer: NL 654 321 987 B01  |  facturatie@deltanode.nl", s["Normal"]))
     story.append(Spacer(1, 5*mm))
     story.append(HRFlowable(width="100%", thickness=2, color=col))
     story.append(Spacer(1, 4*mm))
 
     meta = [
         ["FACTUUR / INVOICE", ""],
-        ["Factuurnummer:", "VDC-AMS1-2024-11-0556"],
-        ["Factuurdatum:",  "28 november 2024"],
+        ["Factuurnummer:", "DNO-2024-11-00334"],
+        ["Factuurdatum:",  "29 november 2024"],
         ["Factureringsperiode:", "November 2024"],
-        ["Klant:", "Amsterdam Trading House B.V.\nHerengracht 420\n1017 BZ Amsterdam"],
-        ["Contract:", "AMS1-ATH-2023-0017"],
+        ["Klant:", "Polderwerk Investments BV\nKeizersgracht 312\n1016 EX Amsterdam"],
+        ["Contract:", "DNO-PWI-2023-0019"],
     ]
     t = Table(meta, colWidths=[55*mm, 120*mm])
     t.setStyle(TableStyle([("FONTNAME",(0,0),(0,-1),"Helvetica-Bold"),
@@ -390,11 +380,11 @@ def make_vantage_amsterdam():
     story.append(Paragraph("Stroomverbruik / Power Consumption — November 2024", s["B"]))
     story.append(Spacer(1, 2*mm))
     items = [
-        ["Omschrijving",                          "Eenheid","Hoeveelheid", "Tarief",         "Bedrag"],
-        ["IT-stroomverbruik",                     "kWh",    "987,320",    "€0.0945/kWh",    "€ 93,302.04"],
-        ["PUE-toeslag (gemeten PUE: 1.31)",       "factor",  "—",          "—",             "€ 28,923.63"],
-        ["Koeling & facilitaire kosten",          "vast",    "1",          "€9,500.00",     "€  9,500.00"],
-        ["Beveiligde connectiviteit (2×10G)",     "poort",   "2",          "€780.00/mnd",   "€  1,560.00"],
+        ["Omschrijving",                         "Eenheid","Hoeveelheid","Tarief",        "Bedrag"],
+        ["IT-stroomverbruik (gemeten)",           "kWh",   "987,320",   "€0.0945/kWh",  "€ 93,302.04"],
+        ["PUE-toeslag (gemeten PUE: 1.31)",       "factor", "—",         "—",            "€ 28,923.63"],
+        ["Koeling & facilitaire kosten",          "vast",   "1",         "€9,500.00",    "€  9,500.00"],
+        ["Connectiviteit 2×10G",                  "poort",  "2",         "€780.00/mnd",  "€  1,560.00"],
     ]
     t2 = Table(items, colWidths=[73*mm, 18*mm, 25*mm, 30*mm, 31*mm])
     t2.setStyle(_table_style(col))
@@ -407,49 +397,45 @@ def make_vantage_amsterdam():
         ["", "Totaal te betalen:",   "€ 161,275.66"],
     ]
     t3 = Table(totals, colWidths=[105*mm, 42*mm, 38*mm])
-    t3.setStyle(TableStyle([("ALIGN",(1,0),(-1,-1),"RIGHT"),
-                             ("FONTNAME",(1,2),(-1,2),"Helvetica-Bold"),
-                             ("FONTSIZE",(1,2),(-1,2),11),
-                             ("LINEABOVE",(1,2),(-1,2),1,colors.black),
-                             ("BOTTOMPADDING",(0,0),(-1,-1),4)]))
+    t3.setStyle(_totals_style())
     story.append(t3)
     story.append(Spacer(1, 5*mm))
     story.append(Paragraph("Gemeten PUE: 1.31  |  Contractuele PUE-cap: 1.40", s["B"]))
     story.append(Spacer(1, 3*mm))
-    story.append(Paragraph("Betaaltermijn: 30 dagen — IBAN: NL91 ABNA 0417 1643 00", s["Sm"]))
+    story.append(Paragraph("Betaaltermijn: 30 dagen — IBAN: NL12 ABNA 0123 4567 89", s["Sm"]))
 
     doc.build(story)
     print(f"  Created: {path}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. Iron Mountain London — GBP
+# 6. Severn Digital Facilities Ltd — London, GBP
 # ─────────────────────────────────────────────────────────────────────────────
-def make_iron_mountain_london():
-    path = os.path.join(OUTPUT_DIR, "energy_ironmountain_london_LON2_202411.pdf")
+def make_severn_london():
+    path = os.path.join(OUTPUT_DIR, "energy_severn_london_202411.pdf")
     doc = SimpleDocTemplate(path, pagesize=A4,
                             leftMargin=20*mm, rightMargin=20*mm,
                             topMargin=20*mm, bottomMargin=20*mm)
     s = _styles()
-    col = colors.HexColor("#C41230")
+    col = colors.HexColor("#37474F")
     story = []
 
-    story.append(Paragraph("Iron Mountain", ParagraphStyle("IM", fontName="Helvetica-Bold",
-                 fontSize=24, textColor=col)))
-    story.append(Paragraph("Iron Mountain Data Centres Ltd  —  LON2 London", s["Normal"]))
-    story.append(Paragraph("3 Comer Business and Innovation Centre, London NW9 6BX", s["Normal"]))
-    story.append(Paragraph("VAT No: GB 189 3421 56  |  datacenter-billing@ironmountain.com", s["Normal"]))
+    story.append(Paragraph("Severn Digital Facilities",
+                 ParagraphStyle("H", fontName="Helvetica-Bold", fontSize=22, textColor=col)))
+    story.append(Paragraph("Severn Digital Facilities Ltd  —  East London Data Centre", s["Normal"]))
+    story.append(Paragraph("Unit 8, Cody Technology Park, Farnborough GU14 0LX, United Kingdom", s["Normal"]))
+    story.append(Paragraph("VAT No: GB 211 4567 89  |  accounts@severndigital.co.uk", s["Normal"]))
     story.append(Spacer(1, 5*mm))
     story.append(HRFlowable(width="100%", thickness=2, color=col))
     story.append(Spacer(1, 4*mm))
 
     meta = [
         ["INVOICE", ""],
-        ["Invoice Number:", "IM-LON2-2024-11-00892"],
+        ["Invoice Number:", "SDF-2024-11-01045"],
         ["Invoice Date:",   "30 November 2024"],
         ["Service Period:", "November 2024"],
-        ["Customer:", "Hargreaves Asset Management PLC\n250 Bishopsgate\nLondon EC2M 4AA"],
-        ["Service Agreement:", "LON2-HAM-2022-SA-0043"],
+        ["Customer:", "Chandler & Webb Asset Management PLC\n30 St Mary Axe\nLondon EC3A 8BF"],
+        ["Service Agreement:", "SDF-CWA-2022-0051"],
     ]
     t = Table(meta, colWidths=[50*mm, 120*mm])
     t.setStyle(TableStyle([("FONTNAME",(0,0),(0,-1),"Helvetica-Bold"),
@@ -460,14 +446,14 @@ def make_iron_mountain_london():
     story.append(t)
     story.append(Spacer(1, 6*mm))
 
-    story.append(Paragraph("Power & Facilities — November 2024", s["B"]))
+    story.append(Paragraph("Power & Facilities Charges — November 2024", s["B"]))
     story.append(Spacer(1, 2*mm))
     items = [
-        ["Description",                          "Unit",    "Quantity",   "Rate",           "Amount"],
-        ["Power Consumption (metered)",           "kWh",    "1,203,750",  "£0.1056/kWh",   "£127,116.00"],
-        ["PUE Efficiency Factor (1.41)",          "factor",  "—",          "—",             "£ 52,118.56"],
-        ["Colocation Rack Rental (×8)",           "rack",    "8",          "£1,200.00/mo",  "£  9,600.00"],
-        ["Resilience & UPS Maintenance",          "fixed",   "1",          "£3,500.00",     "£  3,500.00"],
+        ["Description",                         "Unit",   "Quantity",  "Rate",           "Amount"],
+        ["Power Consumption (metered)",          "kWh",   "1,203,750", "£0.1056/kWh",   "£127,116.00"],
+        ["PUE Efficiency Factor (1.41)",         "factor", "—",         "—",             "£ 52,118.56"],
+        ["Colocation Rack Rental (×8)",          "rack",   "8",         "£1,200.00/mo",  "£  9,600.00"],
+        ["Resilience & UPS Maintenance",         "fixed",  "1",         "£3,500.00",     "£  3,500.00"],
     ]
     t2 = Table(items, colWidths=[73*mm, 18*mm, 24*mm, 32*mm, 30*mm])
     t2.setStyle(_table_style(col))
@@ -480,16 +466,12 @@ def make_iron_mountain_london():
         ["", "Total Due:",            "£ 230,801.47"],
     ]
     t3 = Table(totals, colWidths=[105*mm, 42*mm, 38*mm])
-    t3.setStyle(TableStyle([("ALIGN",(1,0),(-1,-1),"RIGHT"),
-                             ("FONTNAME",(1,2),(-1,2),"Helvetica-Bold"),
-                             ("FONTSIZE",(1,2),(-1,2),11),
-                             ("LINEABOVE",(1,2),(-1,2),1,colors.black),
-                             ("BOTTOMPADDING",(0,0),(-1,-1),4)]))
+    t3.setStyle(_totals_style())
     story.append(t3)
     story.append(Spacer(1, 5*mm))
     story.append(Paragraph("Actual PUE: 1.41  |  Contracted PUE Cap: 1.50", s["B"]))
     story.append(Spacer(1, 3*mm))
-    story.append(Paragraph("Payment Terms: 30 days net — Sort: 40-47-84 | Acc: 00128654", s["Sm"]))
+    story.append(Paragraph("Payment Terms: 30 days net — Sort: 20-44-55 | Acc: 87654321", s["Sm"]))
 
     doc.build(story)
     print(f"  Created: {path}")
@@ -499,14 +481,14 @@ def make_iron_mountain_london():
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    print(f"Generating energy invoices → {OUTPUT_DIR}/\n")
+    print(f"Generating fictional energy invoices → {OUTPUT_DIR}/\n")
 
-    make_equinix_paris()
-    make_digital_realty_london()
-    make_cyrusone_frankfurt()
-    make_ntt_zurich()
-    make_vantage_amsterdam()
-    make_iron_mountain_london()
+    make_nexova_paris()
+    make_britcore_london()
+    make_rheintech_frankfurt()
+    make_alpencloud_zurich()
+    make_deltanode_amsterdam()
+    make_severn_london()
 
     files = [f for f in os.listdir(OUTPUT_DIR) if f.startswith("energy_")]
     print(f"\n✅ {len(files)} energy invoice files generated:")
