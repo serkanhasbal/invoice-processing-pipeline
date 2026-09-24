@@ -93,7 +93,11 @@ export default function Dashboard({ stats, loading }) {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           icon="💰" color="indigo" label="Total Spend"
-          value={loading ? '...' : stats.total_spend_usd ? `$${(stats.total_spend_usd/1000).toFixed(0)}K` : '—'}
+          value={loading ? '...' : stats.total_spend_usd
+          ? stats.total_spend_usd >= 1_000_000
+            ? `$${(stats.total_spend_usd/1_000_000).toFixed(2)}M`
+            : `$${(stats.total_spend_usd/1_000).toLocaleString(undefined, {maximumFractionDigits: 1})}K`
+          : '—'}
           sub="USD normalised"
         />
         <KpiCard
