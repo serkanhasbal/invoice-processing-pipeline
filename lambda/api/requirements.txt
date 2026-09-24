@@ -1,0 +1,2 @@
+# No third-party dependencies needed.
+# boto3 is pre-installed in the Lambda runtime.

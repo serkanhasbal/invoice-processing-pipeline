@@ -2,25 +2,20 @@
 """
 CDK Entry Point
 ---------------
-This is the first file CDK reads when you run any `cdk` command.
+Instantiates all stacks for the Invoice Intelligence pipeline.
 
-STACK DESIGN DECISION:
-  Storage and Processing are combined into one stack (InvoiceProcessingStack).
-  They were originally separate, but CDK cannot resolve cross-stack references
-  when Stack A needs Stack B's Lambda ARN AND Stack B needs Stack A's bucket ARN
-  simultaneously — this creates a circular dependency CloudFormation cannot solve.
-
-  Since the S3 bucket and the Lambda are tightly coupled (the bucket triggers
-  the Lambda; the Lambda reads from and writes to the bucket), combining them
-  into one stack is the architecturally correct choice.
-
-  AnalyticsStack (Glue + Athena) remains separate because it only reads
-  the bucket name as a string — no circular dependency there.
+Stack dependency order:
+  1. InvoiceProcessingStack  — S3 bucket + Lambda + AppConfig (owns the data)
+  2. InvoiceAnalyticsStack   — Glue + Athena (reads from processing stack bucket)
+  3. FrontendApiStack        — API Gateway + Lambda (reads from processing stack bucket)
+  4. FrontendStack           — S3 + CloudFront (hosts the React app)
 """
 
 import aws_cdk as cdk
-from infrastructure.processing_stack import ProcessingStack
-from infrastructure.analytics_stack import AnalyticsStack
+from infrastructure.processing_stack   import ProcessingStack
+from infrastructure.analytics_stack    import AnalyticsStack
+from infrastructure.frontend_api_stack import FrontendApiStack
+from infrastructure.frontend_stack     import FrontendStack
 
 app = cdk.App()
 
@@ -29,19 +24,26 @@ env = cdk.Environment(
     region="us-east-1",
 )
 
-# Stack 1: Storage + Processing combined
-# Creates S3 bucket, Lambda, AppConfig, IAM, and the S3 trigger all together.
+# Stack 1: Processing (S3 + Lambda + AppConfig)
 processing = ProcessingStack(app, "InvoiceProcessingStack", env=env)
 
-# Stack 2: Analytics
-# Creates Glue Data Catalog and Athena workgroup.
-# Receives the bucket as a plain string reference (bucket_name) to avoid
-# any cross-stack object dependency.
+# Stack 2: Analytics (Glue + Athena)
 analytics = AnalyticsStack(
     app,
     "InvoiceAnalyticsStack",
     invoice_bucket=processing.invoice_bucket,
     env=env,
 )
+
+# Stack 3: Frontend API (API Gateway + Lambda)
+frontend_api = FrontendApiStack(
+    app,
+    "InvoiceFrontendApiStack",
+    invoice_bucket=processing.invoice_bucket,
+    env=env,
+)
+
+# Stack 4: Frontend hosting (S3 + CloudFront)
+frontend = FrontendStack(app, "InvoiceFrontendStack", env=env)
 
 app.synth()

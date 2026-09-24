@@ -19,3 +19,6 @@ cdk.out/
 
 # Lambda build artifacts
 lambda/invoice_processor/__pycache__/
+node_modules/
+dist/
+.env.local
